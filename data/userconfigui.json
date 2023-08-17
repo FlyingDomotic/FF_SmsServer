@@ -1,0 +1,49 @@
+{
+    "groups": [
+        {
+            "title": "SMS server parameters",
+            "entities": [
+                {
+                    "name": "mqttSendTopic",
+                    "title": "MQTT topic to send received SMS to ",
+                    "attributes": {
+                        "size": 40,
+                        "pattern": "^[a-zA-Z0-9/]*$"
+                    }
+                },
+                {
+                    "name": "mqttGetTopic",
+                    "title": "MQTT topic to get SMS to send ",
+                    "attributes": {
+                        "size": 40,
+                        "pattern": "^[a-zA-Z0-9/]*$"
+                    }
+                },
+                {
+                    "name": "mqttLogTopic",
+                    "title": "MQTT topic to log trace to ",
+                    "attributes": {
+                        "size": 40,
+                        "pattern": "^[a-zA-Z0-9/]*$"
+                    }
+                },
+                {
+                    "name": "mqttLwtTopic",
+                    "title": "MQTT root topic to read nodes status ",
+                    "attributes": {
+                        "size": 40,
+                        "pattern": "^[a-zA-Z0-9/]*$"
+                    }
+                },
+                {
+                    "name": "allowedNumbers",
+                    "title": "List of incoming SMS allowed phone number ",
+                    "attributes": {
+                        "size": 40,
+                        "pattern": "^[0-9 +,]*$"
+                    }
+                }
+            ]
+        }
+    ]
+}
