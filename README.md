@@ -84,6 +84,7 @@ The following parameters are used at compile time:
 In addition, the following parameters can be defined for FF_WebServer:
 	REMOTE_DEBUG: (default=defined) Enable telnet remote debug (optional)
 	SERIAL_DEBUG: (default=defined) Enable serial debug (optional, only if REMOTE_DEBUG is disabled)
+	SERIAL_COMMAND_PREFIX: (default=no defined) Prefix of debug commands given on Serial (i.e. "command:"). No commands allowed on Serial if not defined
 	HARDWARE_WATCHDOG_PIN: (default=D4) Enable watchdog external circuit on D4 (optional)
 	HARDWARE_WATCHDOG_ON_DELAY: (default=5000) Define watchdog level on delay (in ms)
 	HARDWARE_WATCHDOG_OFF_DELAY: (default=1) Define watchdog level off delay (in ms)
@@ -121,6 +122,7 @@ The following parameters can be defined, either in json files before loading Lit
 	MQTTUser: User to connect to MQTT server²
 	MQTTPass: Password to connect to MQTT server
 	MQTTTopic: base MQTT topic, used to set LWT topic of SMS server
+	MQTTCommandTopic: topic to read debug commands to be executed
 	MQTTHost: MQTT server to connect to
 	MQTTPort: MQTT port to connect to
 	MQTTInterval: Domoticz update interval (useless)
@@ -130,7 +132,6 @@ The following parameters can be defined, either in json files before loading Lit
 	mqttGetTopic: MQTT topic to read SMS messages to send
 	mqttLwtTopic: root MQTT last will topic to to read application status
 	allowedNumbers: allowed senders phone numbers, comma separated
-	mqttLogTopic: MQTT topic to send log messages
 
 ## Available URLs
 
