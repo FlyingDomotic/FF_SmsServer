@@ -88,7 +88,6 @@ String resetCause = "";										// Used to save reset cause
 
 String mqttSendTopic = "";
 String mqttGetTopic = "";
-String mqttLogTopic = "";
 String mqttLwtTopic = "";
 String allowedNumbers = "";
 
@@ -118,8 +117,6 @@ CONFIG_CHANGED_CALLBACK(onConfigChangedCallback) {
     trace_info_P("mqttSendTopic=%s", mqttSendTopic.c_str());
 	FF_WebServer.load_user_config("mqttGetTopic", mqttGetTopic);
     trace_info_P("mqttGetTopic=%s", mqttGetTopic.c_str());
-	FF_WebServer.load_user_config("mqttLogTopic", mqttLogTopic);
-    trace_info_P("mqttLogTopic=%s", mqttLogTopic.c_str());
 	FF_WebServer.load_user_config("mqttLwtTopic", mqttLwtTopic);
     trace_info_P("mqttLwtTopic=%s", mqttLwtTopic.c_str());
 	FF_WebServer.load_user_config("allowedNumbers", allowedNumbers);
@@ -145,7 +142,6 @@ DEBUG_COMMAND_CALLBACK(onDebugCommandCallback) {
 		// -- Add here your own user variables to print
 		trace_info_P("mqttSendTopic=%s", mqttSendTopic.c_str());
 		trace_info_P("mqttGetTopic=%s", mqttGetTopic.c_str());
-		trace_info_P("mqttLogTopic=%s", mqttLogTopic.c_str());
 		trace_info_P("mqttLwtTopic=%s", mqttLwtTopic.c_str());
 		trace_info_P("allowedNumbers=%s", allowedNumbers.c_str());
 		trace_info_P("runFlag=%d", runFlag);
@@ -497,15 +493,15 @@ void setup() {
     FF_WebServer.setMqttConnectCallback(&onMqttConnectCallback);
     FF_WebServer.setMqttMessageCallback(&onMqttMessageCallback);
 	// Define additional debug commands
-	char helpCmd[350];
+	char helpCmd[250];
 	strncpy_P(helpCmd, PSTR(
-		"a6debug - toggle A6 modem debug flag\n\r"
-		"    a6trace - toggle A6 modem trace flag\n\r"
-		"    run - Toggle A6 modem run flag\n\r"
-		"    restart - Restart A6 modem\n\r"
-		"    AT or at - Send AT command\n\r"
-		"    > - Send command without AT prefix\n\r"
-		"    eof - Send EOF\n\r"
+		"a6debug - toggle A6 modem debug flag\r\n"
+		"a6trace - toggle A6 modem trace flag\r\n"
+		"run - Toggle A6 modem run flag\r\n"
+		"restart - Restart A6 modem\r\n"
+		"AT or at - Send AT command\r\n"
+		"> - Send command without AT prefix\r\n"
+		"eof - Send EOF\r\n"
 		), sizeof(helpCmd));
 	FF_WebServer.setHelpCmd(helpCmd);
 
@@ -534,7 +530,6 @@ void loop() {
 				isolationTime = 0;								// Clear isolation
 				digitalWrite(ISOLATION_RELAY_PIN, RELAY_OFF);	// Switch 5V relay off
 				trace_info_P("Isolation relay switched off");
-				#endif
 				A6Modem.begin(A6_MODEM_SPEED);                          // Start A6 communication channel
 				smsLoop.begin();
 				trace_info_P("GSM started!");
