@@ -14,12 +14,16 @@
 
 		It may also have external watchdog circuit (https://github.com/FlyingDomotic/FF_Watchdog being a good idea).
 
-		It uses FF_WebServer (https://github.com/FlyingDomotic/FF_WebServer) to implement a fully asynchronous Web server,
-			with MQTT connection, Arduino and Web OTA,
-			telnet serial debug, 
-			serial and syslog trace, 
-			external hardware watchdog,
-			and local file system to host user and server files.
+		It uses FF_WebServer (https://github.com/FlyingDomotic/FF_WebServer) to implement a fully asynchronous Web server with:
+			- MQTT connection
+			- Arduino and Web OTA
+			- local file system to host user and server files
+			- file and/or browser based settings
+			- full file editor/upload/download
+			- optional telnet or serial or MQTT debug commands
+			- optional serial and/or syslog trace
+			- optional external hardware watchdog
+			- optional Domoticz connectivity
 
 		Used ESP8266 PIN:
 			- D1 connected on isolation relay or A6 reset pin (optional)
@@ -94,6 +98,7 @@ String allowedNumbers = "";
 // Declare here used callbacks
 static CONFIG_CHANGED_CALLBACK(onConfigChangedCallback);
 static DEBUG_COMMAND_CALLBACK(onDebugCommandCallback);
+static SERIAL_COMMAND_CALLBACK(onSerialCommandCallback);
 static REST_COMMAND_CALLBACK(onRestCommandCallback);
 static MQTT_CONNECT_CALLBACK(onMqttConnectCallback);
 static MQTT_MESSAGE_CALLBACK(onMqttMessageCallback);
@@ -131,14 +136,14 @@ CONFIG_CHANGED_CALLBACK(onConfigChangedCallback) {
 
 	\note	Note that standard commands are already taken in account by server and never passed here.
 
-	\param[in]	lastCmd: last debug command entered by user
+	\param[in]	command: last debug command entered by user
 	\return	none
 
 */
 
 DEBUG_COMMAND_CALLBACK(onDebugCommandCallback) {
 	// "user" command is a standard one used to print user variables
-	if (lastCmd == "user") {
+	if (debugCommand == "user") {
 		// -- Add here your own user variables to print
 		trace_info_P("mqttSendTopic=%s", mqttSendTopic.c_str());
 		trace_info_P("mqttGetTopic=%s", mqttGetTopic.c_str());
@@ -160,27 +165,87 @@ DEBUG_COMMAND_CALLBACK(onDebugCommandCallback) {
 		return true;
 	// Put here your own debug commands
 	// -----------
-	} else if (lastCmd == "a6debug") {
+	} else if (debugCommand == "a6debug") {
 		A6Modem.debugFlag = !A6Modem.debugFlag;
 		trace_info_P("a6-debug is now %d", A6Modem.debugFlag);
-	} else if (lastCmd == "a6trace") {
+	} else if (debugCommand == "a6trace") {
 		A6Modem.traceFlag = !A6Modem.traceFlag;
 		trace_info_P("a6-trace is now %d", A6Modem.traceFlag);
-	} else if (lastCmd == "run") {
+	} else if (debugCommand == "run") {
 		A6Modem.setRestart(false);
 		runFlag = ! runFlag;
 		trace_info_P("runFlag is now %d", runFlag);
-	} else if (lastCmd == "restart") {
+	} else if (debugCommand == "restart") {
 		A6Modem.setRestart(true);
 		trace_info_P("Restarting modem");
-	} else if (lastCmd[0] == 'A' && lastCmd[1] == 'T') {
-		A6Modem.sendAT(lastCmd.c_str()); 
-	} else if (lastCmd[0] == 'a' && lastCmd[1] == 't') {
-		A6Modem.sendAT(lastCmd.c_str()); 
-	} else if (lastCmd[0] == '>') {
-		A6Modem.sendAT(lastCmd.substring(1).c_str()); 
-	} else if (lastCmd == "eof") {
+	} else if (debugCommand[0] == 'A' && debugCommand[1] == 'T') {
+		A6Modem.sendAT(debugCommand.c_str()); 
+	} else if (debugCommand[0] == 'a' && debugCommand[1] == 't') {
+		A6Modem.sendAT(debugCommand.c_str()); 
+	} else if (debugCommand[0] == '>') {
+		A6Modem.sendAT(debugCommand.substring(1).c_str()); 
+	} else if (debugCommand == "eof") {
 		A6Modem.sendEOF(); 
+	}
+	return false;
+}
+
+/*!
+
+	This routine is called when a user Serial command is given
+
+	User should analyze here these Serial commands and execute them properly.
+
+	\note	Note that standard Serial commands are already taken in account by server and never passed here.
+
+	\param[in]	command: last Serial command entered by user
+	\return	none
+
+*/
+
+SERIAL_COMMAND_CALLBACK(onSerialCommandCallback) {
+	trace_info_P("Serial command >%s< received", command.c_str());
+	// Only analyze message starting with "{"
+	if (command[0] == '{') {
+		// Analyze JSON message (will fail if payload is empty)
+		DynamicJsonDocument jsonDoc(MAX_SMS_MESSAGE_LEN);
+		auto error = deserializeJson(jsonDoc, command);
+		if (error) {
+			trace_error_P("Failed to parse >%s<. Error: %s", command, error.c_str());
+			#ifndef NO_SERIAL_COMMAND_CALLBACK
+				#ifdef SEND_SMS_FROM_SERIAL
+					Serial.printf(PSTR("{\"status\":\failed to parse\"}\n"));
+				#endif
+			#endif
+			return false;
+		}
+		// Analyze message
+		String message = jsonDoc["message"].as<const char *>();
+		String number = jsonDoc["number"].as<const char *>();
+		#ifndef NO_SERIAL_COMMAND_CALLBACK
+			#ifdef SEND_SMS_FROM_SERIAL
+				Serial.printf(PSTR("{\"status\":\"missing keyword\"}\n"));
+			#endif
+		#endif
+		if (message == "" && number == "") {			// Check for message and number
+			trace_error_P("Message and number missing from MQTT payload %s", command);
+			return false;
+		}
+		if (message == "" ) {							// Check for message
+			trace_error_P("Message missing from MQTT payload %s", command);
+			return false;
+		}
+		if (number == "") {								// Check for number
+			trace_error_P("Number missing from MQTT payload %s", command);
+			return false;
+		}
+		sendSMS(number.c_str(), message.c_str());		// Ok, store the SMS in queue
+		#ifndef NO_SERIAL_COMMAND_CALLBACK
+			#ifdef SEND_SMS_FROM_SERIAL
+				Serial.printf(PSTR("{\"status\":\"ok\"}\n"));
+			#endif
+		#endif
+		return true;
 	}
 	return false;
 }
@@ -388,12 +453,13 @@ MQTT_MESSAGE_CALLBACK(onMqttMessageCallback) {
 				return;
 			}
 			if (number == "") {								// Check for number
-				trace_error_P("Number missing from MQTT payload %s for topic, %s", localPayload, topic);
+				trace_error_P("Number missing from MQTT payload %s for topic %s", localPayload, topic);
 				return;
 			}
 			sendSMS(number.c_str(), message.c_str());		// Ok, store the SMS in queue
 		}
 	}
+
 	if (mqttLwtTopic != "") {								// Is LWT topic defined?
 		if (String(topic).substring(0, mqttLwtTopic.length()) == mqttLwtTopic) {	// Doest topic start with mqttLwtTopic?
 			String node = String(topic).substring(mqttLwtTopic.length());	// Extract node part from topic
@@ -489,19 +555,20 @@ void setup() {
     // Set user's callbacks
     FF_WebServer.setConfigChangedCallback(&onConfigChangedCallback);
     FF_WebServer.setDebugCommandCallback(&onDebugCommandCallback);
+    FF_WebServer.setSerialCommandCallback(&onSerialCommandCallback);
     FF_WebServer.setRestCommandCallback(&onRestCommandCallback);
     FF_WebServer.setMqttConnectCallback(&onMqttConnectCallback);
     FF_WebServer.setMqttMessageCallback(&onMqttMessageCallback);
 	// Define additional debug commands
 	char helpCmd[250];
 	strncpy_P(helpCmd, PSTR(
-		"a6debug - toggle A6 modem debug flag\r\n"
-		"a6trace - toggle A6 modem trace flag\r\n"
-		"run - Toggle A6 modem run flag\r\n"
-		"restart - Restart A6 modem\r\n"
-		"AT or at - Send AT command\r\n"
-		"> - Send command without AT prefix\r\n"
-		"eof - Send EOF\r\n"
+		"a6debug -> toggle A6 modem debug flag\r\n"
+		"a6trace -> toggle A6 modem trace flag\r\n"
+		"run -> toggle A6 modem run flag\r\n"
+		"restart -> restart A6 modem\r\n"
+		"AT or at -> send AT command\r\n"
+		"> -> send command without AT prefix\r\n"
+		"eof -> send EOF\r\n"
 		), sizeof(helpCmd));
 	FF_WebServer.setHelpCmd(helpCmd);
 
@@ -621,6 +688,9 @@ static void readSmsCallback(int pendingSmsIndex, const char* smsNumber, const ch
 		jsonDoc["message"] = lastReceivedMessage;			// ... and message
 		String temp;
 		serializeJson(jsonDoc, temp);						// Convert json to string
+		#ifdef PRINT_RECEIVED_SMS_ON_SERIAL
+			Serial.println(temp);							// Print message on Serial
+		#endif
 		// Publish received SMS on MQTT
 		if (mqttSendTopic != "") {
 			trace_info_P("Publishing %s to %s", temp.c_str(), mqttSendTopic.c_str());

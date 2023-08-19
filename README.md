@@ -6,7 +6,7 @@ This code implements an SMS gateway, based on ESP8266 and A6/GA6 GSM modem chip 
 
 Messages to send are read on Serial and/or MQTT and/or HTTP.
 
-Received SMS from restricted phone numbers are pushed to Serial and/or MQTT. With associated examples,
+Received SMS from restricted phone numbers are pushed to Serial and/or MQTT. With associated examples:
 	- it's possible to execute bash commands on remote Unix nodes,
 	- as well as reading/changing state of Domoticz devices.
 
@@ -14,12 +14,16 @@ It may have an external relay/NPN to power cycle and reset GSM chip, or a direct
 
 It may also have external watchdog circuit (https://github.com/FlyingDomotic/FF_Watchdog being a good idea).
 
-It uses FF_WebServer (https://github.com/FlyingDomotic/FF_WebServer) to implement a fully asynchronous Web server,
-	- with MQTT connection, Arduino and Web OTA,
-	- telnet serial debug, 
-	- serial and syslog trace, 
-	- external hardware watchdog,
-	- and local file system to host user and server files.
+It uses FF_WebServer (https://github.com/FlyingDomotic/FF_WebServer) to implement a fully asynchronous Web server with:
+	- MQTT connection
+	- Arduino and Web OTA
+	- local file system to host user and server files
+	- file and/or browser based settings
+	- full file editor/upload/download
+	- optional telnet or serial or MQTT debug commands
+	- optional serial and/or syslog trace
+	- optional external hardware watchdog
+	- optional Domoticz connectivity
 
 Used ESP8266 PIN:
 	- D1 connected on isolation relay or A6 reset pin (optional)
@@ -72,6 +76,30 @@ or
 git checkout <modified file>
 ```
 
+Warning: as files in data folder should be downloaded on ESP file system, it may be a good idea to check if some of them have been changed be a new version, to update them on your ESP.
+
+Remind also that config.json and userconfig.json are specific to your installation. Don't forget to download them from your ESP before making a global file system upload.
+
+## Documentation
+
+Documentation could be built using doxygen, either using makedoc.sh (for Linux) or makedoc.bat (for Windows), or running
+```
+doxygen doxyfile
+```
+
+HTML and RTF versions will then be available in `documentation` folder.
+
+## How to send a SMS?
+
+You may send a SMS:
+	- making an HTTP request at `http://[smsserver name or ip]/rest/send&number=[phone number]&message=[message to send]`. As this is an HTTP request, elements have to be escaped as usual (i.e replace spaces by +, special characters by their equivalents).
+	- sending `{"number":"[phone number of target]", "message":"[Message to send outside]"}` to  to MQTT topic `mqttGetTopic` (probably something like `smsServer/toSend`)
+	- sending messages like `{"number":"[phone number of target]", "message":"[Message to send outside]"}` to Serial. Answer format will be `{"status":"[submission status]"}`.
+
+## How to get a SMS?
+	- subscribing to MQTT `mqttSendTopic` (probably something like `smsServer/received`). Received message format is `{"number":"[phone number of sender]", "date":"[receive date]", "message":"[Message sent to SMS server]"}`.
+	- scanning Serial for messages like `{"number":"[phone number of sender]", "date":"[receive date]", "message":"[Message sent to SMS server]"}`
+
 ## Parameters at compile time
 
 The following parameters are used at compile time:
@@ -84,7 +112,7 @@ The following parameters are used at compile time:
 In addition, the following parameters can be defined for FF_WebServer:
 	REMOTE_DEBUG: (default=defined) Enable telnet remote debug (optional)
 	SERIAL_DEBUG: (default=defined) Enable serial debug (optional, only if REMOTE_DEBUG is disabled)
-	SERIAL_COMMAND_PREFIX: (default=no defined) Prefix of debug commands given on Serial (i.e. "command:"). No commands allowed on Serial if not defined
+	SERIAL_COMMAND_PREFIX: (default=no defined) Prefix of debug commands given on Serial (i.e. `command:`). No commands are allowed on Serial if not defined
 	HARDWARE_WATCHDOG_PIN: (default=D4) Enable watchdog external circuit on D4 (optional)
 	HARDWARE_WATCHDOG_ON_DELAY: (default=5000) Define watchdog level on delay (in ms)
 	HARDWARE_WATCHDOG_OFF_DELAY: (default=1) Define watchdog level off delay (in ms)
@@ -128,8 +156,8 @@ The following parameters can be defined, either in json files before loading Lit
 	MQTTInterval: Domoticz update interval (useless)
 	SyslogServer: syslog server to use (empty if not to be used)
 	SyslogPort: syslog port to use (empty if not to be used)
-	mqttSendTopic: MQTT topic to write received SMS to
-	mqttGetTopic: MQTT topic to read SMS messages to send
+	mqttSendTopic: MQTT topic used by SMS server to write external received SMS to
+	mqttGetTopic: MQTT topic used by SMS server to read SMS messages to send external destination
 	mqttLwtTopic: root MQTT last will topic to to read application status
 	allowedNumbers: allowed senders phone numbers, comma separated
 
@@ -160,9 +188,46 @@ WebServer answers to the following URLs. If authentication is turned on, some of
 - /rconfig (GET) -> get configuration data
 - /pconfig (POST) -> set configuration data
 - /rest -> activate a rest request to get some (user's) values (*)
-- /rest/values -> -> return values to be loaded in index.html and index_user.html (*)
+- /rest/values -> return values to be loaded in index.html and index_user.html (*)
 - /json -> activate a rest request to get some (user's) values (*)
-- /post  -> activate a post request to set some (user's) values (*)
+- /post -> activate a post request to set some (user's) values (*)
+
+## Debug commands
+
+Debug commands are available to help understanding what happens, and may be a good starting point to help troubleshooting.
+
+Debug output is available on Telnet, Serial and Syslog. Note that settings can disable some of these outputs.
+
+### Access
+Debug is available through:
+- Telnet: connect with a telnet tool on ESP's port 23, and strike commands on keyboard
+- MQTT: send the raw command to mqttCommandTopic (don't set the retain flag unless you want the command to be executed at each ESP restart)
+- Serial: send the command on Serial, prefixing it by SERIAL_COMMAND_PREFIX (i.e. `command:vars`)
+
+### Commands
+The following commands are allowed:
+	- ? or h: display these help of commands
+	- m: display memory available
+	- v: set debug level to verbose
+	- d: set debug level to debug
+	- i: set debug level to info
+	- w: set debug level to warning
+	- e: set debug level to errors
+	- s: set debug silence on/off
+	- cpu80 : ESP8266 CPU at 80MHz
+	- cpu160: ESP8266 CPU at 160MHz
+	- reset: reset the ESP8266
+	- vars: dump standard variables
+	- user: dump user variables
+	- debug: toggle debug flag
+	- trace: toggle trace flag
+	- a6debug: toggle A6 modem debug flag
+	- a6trace: toggle A6 modem trace flag
+	- run: toggle A6 modem run flag
+	- restart: restart A6 modem
+	- AT or at: send AT command
+	- >: send command without AT prefix
+	- eof: send EOF
 
 ## MQTT topics
 
@@ -171,38 +236,43 @@ The following MQTT topics are used:
 ### MQTTTopic
 
 Base MQTT topic, used to write LWT topic of SMS server
-For example: smsServer
-LWT format: when SMS server active: {"state":"up","version":"[SMS server version],[FF_WebServer version]"} , when down: {"state":"down"}
+For example: `smsServer`
+LWT format: when SMS server active: `{"state":"up","version":"[SMS server version],[FF_WebServer version]"}` , when down: `{"state":"down"}`
 
 ### mqttSendTopic
 
-MQTT topic to write received SMS to
-For example: smsServer/received
-Format: {"number":"[phone number of sender]", "message":"[Message sent to SMS server]"}
+MQTT topic used by SMS server to write received SMS to
+For example: `smsServer/received`
+Format: `{"number":"[phone number of sender]", "date":"[receive date"], "message":"[Message sent to SMS server]"}`
 
 ### mqttGetTopic
 
-MQTT topic to read SMS messages to send
-For example: smsServer/toSend
-Format: {"number":"[phone number to send message to]", "message":"[Message to send]"}
+MQTT topic used by SMS server to read SMS messages to send to external destination
+For example: `smsServer/toSend`
+Format: `{"number":"[phone number to send message to]", "message":"[Message to send]"}`
 
 ### mqttLwtTopic
 
 Root MQTT last will topic to to read application status
-For example: smsServer/LWT (will be followed by node/application name, i.e. smsServer/LWT/myNode)
-Format: {"state":"[State of node/application]"}, probably "up" or "down", displayed on main Web server page, and returned to answer of /rest/listening request
+For example: `smsServer/LWT` (will be followed by node/application name, i.e. `smsServer/LWT/myNode`)
+Format: `{"state":"[State of node/application]"}`, probably "up" or "down", displayed on main Web server page, and returned to answer of `/rest/listening` request
 
 ### mqttCommandTopic
 
 MQTT topic to read debug commands to be executed
-For example: smsServer/command
-Format: [Command to be exxecuted] List of available commands can be returned sending "?" or "h" command
+For example: `smsServer/command`
+Format: `[Command to be executed]` List of available commands can be returned sending "?" or "h" command
 
 ## Associated files
 
 Here's list of associated files
 
-##examples/SmsHandler.py
+### examples/readSms.py
+
+This example reads SMS and send them back to receiver, prefixing them with "Received :".
+Basically useless, but a good starting point to be used as example for your own code.
+
+### examples/smsHandler.py
 
 Reads received SMS through MQTT, to isolate messages starting with this node name. 
 When found, rest of message is executed as OS local command.
