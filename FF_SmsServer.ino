@@ -46,10 +46,10 @@
 #define ISOLATION_RELAY_PIN D1								// ESP8266 pin where 5V isolation relay is connected to
 #define RELAY_ON HIGH										// To set 5V relay on (A6 isolated/off)
 #define RELAY_OFF LOW										// To set 5V relay off (A6 powered/on)
-#define ISOLATION_TIME 2000									// Time to keep A6 powered off/reset
+#define ISOLATION_TIME 5000									// Time to keep A6 powered off/reset
 #define MAX_RESTART 10										// Reset CPU after this count of modem restart
 
-#define A6_MODEM_SPEED 115200                               // A6 GSM modem initial speed
+#define A6_MODEM_SPEED 9600									// A6 GSM modem requested speed
 
 #define LOAD_CHAR(dest, src) strncpy_P(dest, PSTR(src), sizeof(dest))
 
@@ -102,7 +102,7 @@ static SERIAL_COMMAND_CALLBACK(onSerialCommandCallback);
 static REST_COMMAND_CALLBACK(onRestCommandCallback);
 static MQTT_CONNECT_CALLBACK(onMqttConnectCallback);
 static MQTT_MESSAGE_CALLBACK(onMqttMessageCallback);
-
+static HELP_MESSAGE_CALLBACK(onHelpMessageCallback);
 // Here are the callbacks code
 
 /*!
@@ -188,6 +188,17 @@ DEBUG_COMMAND_CALLBACK(onDebugCommandCallback) {
 		A6Modem.sendEOF(); 
 	}
 	return false;
+}
+/*!
+
+	This routine is called when help message is to be printed
+
+	\param	None
+	\return	help message to be displayed
+
+*/
+HELP_MESSAGE_CALLBACK(onHelpMessageCallback) {
+	return PSTR("mycmd - This is my user command\r\n");
 }
 
 /*!
@@ -429,6 +440,7 @@ MQTT_MESSAGE_CALLBACK(onMqttMessageCallback) {
 				// Remove node from list as it was deleted
 				listeningNodes = listeningNodes.substring(0, startPos+1) + listeningNodes.substring(endPos+1);
 			}
+			return;
 		}
 	}
 
@@ -559,18 +571,7 @@ void setup() {
     FF_WebServer.setRestCommandCallback(&onRestCommandCallback);
     FF_WebServer.setMqttConnectCallback(&onMqttConnectCallback);
     FF_WebServer.setMqttMessageCallback(&onMqttMessageCallback);
-	// Define additional debug commands
-	char helpCmd[250];
-	strncpy_P(helpCmd, PSTR(
-		"a6debug -> toggle A6 modem debug flag\r\n"
-		"a6trace -> toggle A6 modem trace flag\r\n"
-		"run -> toggle A6 modem run flag\r\n"
-		"restart -> restart A6 modem\r\n"
-		"AT or at -> send AT command\r\n"
-		"> -> send command without AT prefix\r\n"
-		"eof -> send EOF\r\n"
-		), sizeof(helpCmd));
-	FF_WebServer.setHelpCmd(helpCmd);
+	FF_WebServer.setHelpMessageCallback(&onHelpMessageCallback);
 
 	// SMS server specific setup
 	#ifdef ISOLATION_RELAY_PIN

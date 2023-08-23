@@ -74,28 +74,12 @@ def getValue(dict, key, default=''):
 currentPath = pathlib.Path(__file__).parent.resolve()
 os.chdir(currentPath)
 
-hostName = socket.gethostname() # Get this file name
-cdeFile = __file__
-if cdeFile[:2] == './':
-    cdeFile = cdeFile[2:]
+# Get this host name
+hostName = socket.gethostname()
 
-# Define full appName after this file name
-appNameFull = cdeFile[:-3]
-# Define short appName
-elements = appNameFull.split("/")
-appName = elements[len(elements)-1]
+# Get this file name (w/o path & extension)
+cdeFile = pathlib.Path(__file__).stem
 
-# Log settings
-log_format = "%(asctime)s:%(levelname)s:%(message)s"
-logger = logging.getLogger(appName)
-logger.setLevel(logging.INFO)
-logHandler = handlers.TimedRotatingFileHandler(appNameFull+'_'+hostName+'.log', when='W0', interval=1)
-logHandler.suffix = "%Y%m%d"
-logHandler.setLevel(logging.INFO)
-formatter = logging.Formatter(log_format)
-logHandler.setFormatter(formatter)
-logger.addHandler(logHandler)
-logger.info('----- Starting on '+hostName+' -----')
 
 ### Here are settings to be adapted to your context ###
 
@@ -108,6 +92,17 @@ MQTT_ID = "*myMqttUser*"
 MQTT_KEY = "*myMqttKey*"
 
 ### End of settings ###
+# Log settings
+log_format = "%(asctime)s:%(levelname)s:%(message)s"
+logger = logging.getLogger(cdeFile)
+logger.setLevel(logging.INFO)
+logHandler = handlers.TimedRotatingFileHandler(str(currentPath) + cdeFile +'_'+hostName+'.log', when='W0', interval=1)
+logHandler.suffix = "%Y%m%d"
+logHandler.setLevel(logging.INFO)
+formatter = logging.Formatter(log_format)
+logHandler.setFormatter(formatter)
+logger.addHandler(logHandler)
+logger.info('----- Starting on '+hostName+', version '+fileVersion+' -----')
 
 # Use this python file name and random number as client name
 random.seed()

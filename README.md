@@ -108,6 +108,8 @@ The following parameters are used at compile time:
 	RELAY_OFF: (default=LOW) Level to set 5V relay off/reset PIN inactive (useless if ISOLATION_RELAY_PIN not defined)
 	ISOLATION_TIME: (default 2000) Time (ms) to keep A6 powered off/reset (useless if ISOLATION_RELAY_PIN not defined)
 	MAX_RESTART: (default 10) Reset CPU after this count of modem restart
+	PRINT_RECEIVED_SMS_ON_SERIAL: received SMS are also printed on Serial
+	SEND_SMS_FROM_SERIAL: scan Serial for SMS to be sent
 
 In addition, the following parameters can be defined for FF_WebServer:
 	REMOTE_DEBUG: (default=defined) Enable telnet remote debug (optional)
