@@ -26,10 +26,10 @@
 			- optional Domoticz connectivity
 
 		Used ESP8266 PIN:
-			- D1 connected on isolation relay or A6 reset pin (optional)
+			- D5 connected on isolation relay or A6 reset pin (optional)
 			- D4 connected to hardware watchdog trigger pin (optional)
-			- D5 connected on A6 U_RX PIN
-			- D6 connected on A6 U_TX PIN
+			- D7 connected on A6 U_RX PIN
+			- D8 connected on A6 U_TX PIN
 
 	Written and maintained by Flying Domotic (https://github.com/FlyingDomotic/FF_WebServer)
 
@@ -42,14 +42,27 @@
 //		Declare here user's data needed by user's code
 #include <FF_A6lib.h>										// A6 library https://github.com/FlyingDomotic/FF_A6lib
 
+//	Optional Nano connected to ESP through I2C bus on D1/D2
+#ifdef ATTACHED_NANO_SLAVE_ID
+	#define ATTACHED_NANO_RESET_PIN D6						// Reset PIN of attached Nano
+	#define ATTACHED_NANO_RESET_ACTIVE LOW					// Level to set to reset Nano
+	#ifndef ATTACHED_NANO_RESET_TIME
+		#define ATTACHED_NANO_RESET_TIME 2000				// Time to keep nano reset active
+	#endif
+#endif
+
 // ----- SMS stuff -----
-#define ISOLATION_RELAY_PIN D1								// ESP8266 pin where 5V isolation relay is connected to
+#define ISOLATION_RELAY_PIN D5								// ESP8266 pin where 5V isolation relay is connected to
 #define RELAY_ON HIGH										// To set 5V relay on (A6 isolated/off)
 #define RELAY_OFF LOW										// To set 5V relay off (A6 powered/on)
-#define ISOLATION_TIME 5000									// Time to keep A6 powered off/reset
+#ifndef ISOLATION_TIME
+	#define ISOLATION_TIME 5000								// Time to keep A6 powered off/reset
+#endif
 #define MAX_RESTART 10										// Reset CPU after this count of modem restart
 
 #define A6_MODEM_SPEED 9600									// A6 GSM modem requested speed
+#define A6_MODEM_RX_PIN D8									// Modem RX pin
+#define A6_MODEM_TX_PIN D7									// Modem TX pin
 
 #define LOAD_CHAR(dest, src) strncpy_P(dest, PSTR(src), sizeof(dest))
 
@@ -95,6 +108,12 @@ String mqttGetTopic = "";
 String mqttLwtTopic = "";
 String allowedNumbers = "";
 
+// Local variables
+bool localDebugFlag = false;
+bool localTraceFlag = false;
+
+static void enterRoutine(const char* routineName);
+
 // Declare here used callbacks
 static CONFIG_CHANGED_CALLBACK(onConfigChangedCallback);
 static DEBUG_COMMAND_CALLBACK(onDebugCommandCallback);
@@ -103,7 +122,10 @@ static REST_COMMAND_CALLBACK(onRestCommandCallback);
 static MQTT_CONNECT_CALLBACK(onMqttConnectCallback);
 static MQTT_MESSAGE_CALLBACK(onMqttMessageCallback);
 static HELP_MESSAGE_CALLBACK(onHelpMessageCallback);
-// Here are the callbacks code
+
+static void readSmsCallback(int pendingSmsIndex, const char* smsNumber, const char* smsDate, const char* smsMessage);
+
+// Here is callback code
 
 /*!
 
@@ -117,7 +139,8 @@ static HELP_MESSAGE_CALLBACK(onHelpMessageCallback);
 */
 
 CONFIG_CHANGED_CALLBACK(onConfigChangedCallback) {
-	trace_info_P("Loading user config");
+	if (localTraceFlag) enterRoutine(__func__);
+	trace_info_P("Loading user config", NULL);
 	FF_WebServer.load_user_config("mqttSendTopic", mqttSendTopic);
     trace_info_P("mqttSendTopic=%s", mqttSendTopic.c_str());
 	FF_WebServer.load_user_config("mqttGetTopic", mqttGetTopic);
@@ -142,6 +165,7 @@ CONFIG_CHANGED_CALLBACK(onConfigChangedCallback) {
 */
 
 DEBUG_COMMAND_CALLBACK(onDebugCommandCallback) {
+	if (localTraceFlag) enterRoutine(__func__);
 	// "user" command is a standard one used to print user variables
 	if (debugCommand == "user") {
 		// -- Add here your own user variables to print
@@ -161,6 +185,8 @@ DEBUG_COMMAND_CALLBACK(onDebugCommandCallback) {
 		trace_info_P("listeningNodes=%s", listeningNodes.substring(2, listeningNodes.length()-2).c_str());
 		trace_info_P("getFreeHeap()=%d", ESP.getFreeHeap());
 		trace_info_P("getMaxFreeBlockSize()=%d", ESP.getMaxFreeBlockSize());
+		trace_info_P("localTraceFlag=%d", localTraceFlag);
+		trace_info_P("localDebugFlag=%d", localDebugFlag);
 		// -----------
 		return true;
 	// Put here your own debug commands
@@ -177,7 +203,7 @@ DEBUG_COMMAND_CALLBACK(onDebugCommandCallback) {
 		trace_info_P("runFlag is now %d", runFlag);
 	} else if (debugCommand == "restart") {
 		A6Modem.setRestart(true);
-		trace_info_P("Restarting modem");
+		trace_info_P("Restarting modem", NULL);
 	} else if (debugCommand[0] == 'A' && debugCommand[1] == 'T') {
 		A6Modem.sendAT(debugCommand.c_str()); 
 	} else if (debugCommand[0] == 'a' && debugCommand[1] == 't') {
@@ -186,6 +212,12 @@ DEBUG_COMMAND_CALLBACK(onDebugCommandCallback) {
 		A6Modem.sendAT(debugCommand.substring(1).c_str()); 
 	} else if (debugCommand == "eof") {
 		A6Modem.sendEOF(); 
+	} else if (debugCommand == "enter") {
+		localTraceFlag = !localTraceFlag;
+		trace_info_P("localTraceFlag is now %d", localTraceFlag);
+	} else if (debugCommand == "call") {
+		localDebugFlag = !localDebugFlag;
+		trace_info_P("localDebugFlag is now %d", localDebugFlag);
 	}
 	return false;
 }
@@ -198,7 +230,18 @@ DEBUG_COMMAND_CALLBACK(onDebugCommandCallback) {
 
 */
 HELP_MESSAGE_CALLBACK(onHelpMessageCallback) {
-	return PSTR("mycmd - This is my user command\r\n");
+	if (localTraceFlag) enterRoutine(__func__);
+	return PSTR("a6debug - toggle A6 modem debug flag\n\r"
+				"a6trace - toggle A6 modem trace flag\n\r"
+				"a6enter - toggle A6 modem entering routine trace flag\n\r"
+				"enter - toggle routine entering trace flag\n\r"
+				"call - toggle routine call trace flag\n\r"
+				"run - Toggle A6 modem run flag\n\r"
+				"restart - Restart A6 modem\n\r"
+				"AT or at - Send AT command\n\r"
+				"> - Send command without AT prefix\n\r"
+				"eof - Send EOF\n\r"
+	);
 }
 
 /*!
@@ -215,6 +258,7 @@ HELP_MESSAGE_CALLBACK(onHelpMessageCallback) {
 */
 
 SERIAL_COMMAND_CALLBACK(onSerialCommandCallback) {
+	if (localTraceFlag) enterRoutine(__func__);
 	trace_info_P("Serial command >%s< received", command.c_str());
 	// Only analyze message starting with "{"
 	if (command[0] == '{') {
@@ -222,7 +266,7 @@ SERIAL_COMMAND_CALLBACK(onSerialCommandCallback) {
 		DynamicJsonDocument jsonDoc(MAX_SMS_MESSAGE_LEN);
 		auto error = deserializeJson(jsonDoc, command);
 		if (error) {
-			trace_error_P("Failed to parse >%s<. Error: %s", command, error.c_str());
+			trace_error_P("Failed to parse >%s<. Error: %s", command.c_str(), error.c_str());
 			#ifndef NO_SERIAL_COMMAND_CALLBACK
 				#ifdef SEND_SMS_FROM_SERIAL
 					Serial.printf(PSTR("{\"status\":\failed to parse\"}\n"));
@@ -239,15 +283,15 @@ SERIAL_COMMAND_CALLBACK(onSerialCommandCallback) {
 			#endif
 		#endif
 		if (message == "" && number == "") {			// Check for message and number
-			trace_error_P("Message and number missing from MQTT payload %s", command);
+			trace_error_P("Message and number missing from MQTT payload %s", command.c_str());
 			return false;
 		}
 		if (message == "" ) {							// Check for message
-			trace_error_P("Message missing from MQTT payload %s", command);
+			trace_error_P("Message missing from MQTT payload %s", command.c_str());
 			return false;
 		}
 		if (number == "") {								// Check for number
-			trace_error_P("Number missing from MQTT payload %s", command);
+			trace_error_P("Number missing from MQTT payload %s", command.c_str());
 			return false;
 		}
 		sendSMS(number.c_str(), message.c_str());		// Ok, store the SMS in queue
@@ -279,7 +323,8 @@ SERIAL_COMMAND_CALLBACK(onSerialCommandCallback) {
 
 */
 REST_COMMAND_CALLBACK(onRestCommandCallback) {
-    char tempBuffer[500];
+	if (localTraceFlag) enterRoutine(__func__);
+    char tempBuffer[600];
     tempBuffer[0] = 0;
 	if (request->url() == "/rest/values") {
 		snprintf_P(tempBuffer, sizeof(tempBuffer),
@@ -385,6 +430,7 @@ REST_COMMAND_CALLBACK(onRestCommandCallback) {
 
 */
 MQTT_CONNECT_CALLBACK(onMqttConnectCallback) {
+	if (localTraceFlag) enterRoutine(__func__);
 	// Subscribe to MQTT topics we want to get
 	if (mqttGetTopic != "") {
 		trace_info_P("Subscribing to %s", mqttGetTopic.c_str());
@@ -412,6 +458,7 @@ MQTT_CONNECT_CALLBACK(onMqttConnectCallback) {
 
 */
 MQTT_MESSAGE_CALLBACK(onMqttMessageCallback) {
+	if (localTraceFlag) enterRoutine(__func__);
     char localPayload[250];
     size_t localSize = sizeof(localPayload);
 
@@ -419,11 +466,11 @@ MQTT_MESSAGE_CALLBACK(onMqttMessageCallback) {
     memset(localPayload, '\0', sizeof(localPayload));
     strncpy(localPayload, payload, localSize);
 
-	trace_info_P("Received MQTT message %s on topic %s, len %d, index%d, total %d", localPayload, topic, len, index, total);
+	trace_info_P("Received MQTT message %s on topic %s, len=%d, index=%d, total=%d", localPayload, topic, len, index, total);
 
 	// Check for long (multi packets) messages
 	if (len != total) {
-		trace_error_P("Can't deal with multi packet messages!");
+		trace_error_P("Can't deal with multi packet messages!", NULL);
 		return;
 	}
 
@@ -506,6 +553,7 @@ MQTT_MESSAGE_CALLBACK(onMqttMessageCallback) {
 
 */
 String cleanMessage(String message){
+	if (localTraceFlag) enterRoutine(__func__);
 	String cleanedMessage = message;
 	cleanedMessage.replace("\n", "\\n");
 	cleanedMessage.replace("\r", "\\r");
@@ -525,6 +573,7 @@ String cleanMessage(String message){
 
 */
 String getResetCause(void) {
+	if (localTraceFlag) enterRoutine(__func__);
 	struct rst_info *rtc_info = system_get_rst_info();
 	// Get reset reason
 	String reason = PSTR("Reset reason: ") + String(rtc_info->reason, HEX) + PSTR(" - ") + ESP.getResetReason();
@@ -542,6 +591,50 @@ String getResetCause(void) {
 	}
 	return reason;
 }
+
+#ifdef ATTACHED_NANO_SLAVE_ID
+	#include "Wire.h"
+	unsigned long nanoResetTime = ATTACHED_NANO_RESET_TIME;	// Init nano reset time
+	unsigned long nanoResetStartTime = 0;					// Init nano reset start time
+	FF_Interval attachedNanoInterval(5, 5);					// Execute nano request every 5 ms
+
+	void sendToSlave(uint8_t _command) {
+		Wire.beginTransmission(ATTACHED_NANO_SLAVE_ID);
+		Wire.write(_command);
+		byte status = Wire.endTransmission();
+		trace_info_P("Sending %d to slave, result %d", _command, status);
+	}
+
+	bool getFromSlave() {
+		int nbChar = Wire.requestFrom(ATTACHED_NANO_SLAVE_ID, 2);
+		int nbChar2 = Wire.available();
+		if (nbChar != nbChar2) {
+			trace_info_P("?? Request returned %d while available %d", nbChar, nbChar2);
+		}
+		if (nbChar == 2) {
+			uint8_t c1 = Wire.read();
+			uint8_t c2 = Wire.read();
+			if (c1) {
+				if (c1 == 254) {
+					trace_info_P("Slave ready, version %x", c2);
+					return false;
+				}
+				trace_info_P( "Received c1=%d, c2=%d", c1, c2);
+				return true;
+			}
+		} else {
+			if (nbChar) {
+				trace_info_P("?? getFromSlave returned %d characters", nbChar);
+				while (Wire.available()) {
+					char c = Wire.read();
+					trace_info_P("?? Discarding %d", c);
+				}
+			}
+		}
+		return false;
+	}
+#endif
+
 
 //	This is the setup routine.
 void setup() {
@@ -562,8 +655,10 @@ void setup() {
     // Enable debug
 	resetCause = getResetCause();
     FF_TRACE.setLevel(FF_TRACE_LEVEL_DEBUG);
-    FF_WebServer.debugFlag = true;
-    ////FF_WebServer.traceFlag = true;
+    //FF_WebServer.debugFlag = true;
+    //FF_WebServer.traceFlag = true;
+	//localDebugFlag = true;
+	//localTraceFlag = true;
     // Set user's callbacks
     FF_WebServer.setConfigChangedCallback(&onConfigChangedCallback);
     FF_WebServer.setDebugCommandCallback(&onDebugCommandCallback);
@@ -577,11 +672,24 @@ void setup() {
 	#ifdef ISOLATION_RELAY_PIN
 		digitalWrite(ISOLATION_RELAY_PIN, RELAY_ON);		// Switch 5V relay on, isolate A6 power or set reset PIN
 		pinMode(ISOLATION_RELAY_PIN, OUTPUT);
+		isolationStartTime = millis();
 	#endif
-	isolationStartTime = millis();
+	#ifdef ATTACHED_NANO_SLAVE_ID
+		digitalWrite(ATTACHED_NANO_RESET_PIN, ATTACHED_NANO_RESET_ACTIVE);	// Reset Nano
+		pinMode(ATTACHED_NANO_RESET_PIN, OUTPUT);
+		nanoResetStartTime = millis();
+	#endif
+
     A6Modem.registerSmsCb(readSmsCallback);                 // SMS received callback
     A6Modem.debugFlag = true;
-    A6Modem.traceFlag = true;
+    A6Modem.traceFlag = false;
+	//A6Modem.traceEnterFlag = true;
+	#ifdef ATTACHED_NANO_SLAVE_ID
+		// Start Wire as master
+		Wire.begin();
+		Wire.setClockStretchLimit(40000);    // Slave wait for answer time in µs (default to 230)
+		delay(10);
+	#endif
 
 	// Start FF_WebServer
 	FF_WebServer.begin(&LittleFS, VERSION);
@@ -590,17 +698,34 @@ void setup() {
 //	This is the main loop.
 //	Do what ever you want and call FF_WebServer.handle()
 void loop() {
+	// Manage Web Server
+	FF_WebServer.handle();
 	// User part of loop
+	#ifdef ATTACHED_NANO_SLAVE_ID
+		if (nanoResetTime){										// Are we resetting Nano?
+			// Test for nano reset time-out
+			if ((millis() - nanoResetStartTime) >= nanoResetTime) {
+				nanoResetTime = 0;								// Clear nano reset
+				pinMode(ATTACHED_NANO_RESET_PIN, INPUT);		// Deactivate output
+				trace_info_P("End of Nano reset", NULL);
+			}
+		} else {
+			// Read data from slave every 5 ms
+			if (attachedNanoInterval.shouldRun()) {
+				getFromSlave();
+			}
+		}
+	#endif
 	#ifdef ISOLATION_RELAY_PIN
-		if (isolationTime) {									// Are we isolating induction power?
+		if (isolationTime) {									// Are we isolating power/resetting modem?
 			// Test for isolation time-out
 			if ((millis() - isolationStartTime) >= isolationTime) {
 				isolationTime = 0;								// Clear isolation
 				digitalWrite(ISOLATION_RELAY_PIN, RELAY_OFF);	// Switch 5V relay off
-				trace_info_P("Isolation relay switched off");
-				A6Modem.begin(A6_MODEM_SPEED);                          // Start A6 communication channel
+				trace_info_P("Isolation relay switched off", NULL);
+				A6Modem.begin(A6_MODEM_SPEED, A6_MODEM_RX_PIN, A6_MODEM_TX_PIN);	// Start A6 communication channel
 				smsLoop.begin();
-				trace_info_P("GSM started!");
+				trace_info_P("GSM started!", NULL);
 			}
 		} else {
 	#endif
@@ -614,11 +739,14 @@ void loop() {
 							gsmState = PSTR("Restarting ESP"); 
 							trace_info_P("%s after %d restart", gsmState.c_str(), restartCount);
 							delay(500);
+							#ifdef FF_TRACE_USE_SERIAL
+								Serial.flush();
+							#endif
 							ESP.restart();
 						}
 						gsmState = PSTR("Restarting GSM"); 
 						trace_debug_P("%s", gsmState.c_str());
-						A6Modem.begin(A6_MODEM_SPEED);
+						A6Modem.begin(A6_MODEM_SPEED, A6_MODEM_RX_PIN, A6_MODEM_TX_PIN);	// Start A6 communication channel
 					} else {
 						if (A6Modem.isIdle()) {
 							if (messageBuffer != "") {
@@ -637,8 +765,6 @@ void loop() {
 	#ifdef ISOLATION_RELAY_PIN
 		}
 	#endif
-	// Manage Web Server
-	FF_WebServer.handle();
 }
 
 //
@@ -658,7 +784,8 @@ void loop() {
 
 */
 // SMS read callback, extract commands
-static void readSmsCallback(int pendingSmsIndex, const char* smsNumber, const char* smsDate, const char* smsMessage) {
+void readSmsCallback(int pendingSmsIndex, const char* smsNumber, const char* smsDate, const char* smsMessage) {
+	if (localTraceFlag) enterRoutine(__func__);
 	// Empty SMS?
 	if (!smsMessage[0]) {
 		return;
@@ -695,7 +822,7 @@ static void readSmsCallback(int pendingSmsIndex, const char* smsNumber, const ch
 		// Publish received SMS on MQTT
 		if (mqttSendTopic != "") {
 			trace_info_P("Publishing %s to %s", temp.c_str(), mqttSendTopic.c_str());
-			FF_WebServer.mqttPublishRaw(mqttSendTopic.c_str(),temp.c_str());
+			FF_WebServer.mqttPublishRaw(mqttSendTopic.c_str(),temp.c_str(), false);
 		}
 	} else {
 		trace_debug_P("Bad sender %s", smsNumber);			// Sender not in allowed list
@@ -714,6 +841,7 @@ static void readSmsCallback(int pendingSmsIndex, const char* smsNumber, const ch
 
 */
 void sendBufferedSMS(void) {
+	if (localTraceFlag) enterRoutine(__func__);
 	size_t pos = messageBuffer.indexOf('\255');
 	if (pos != std::string::npos) {
 		// We have other messages, extract first one and remove it 
@@ -758,6 +886,23 @@ void sendBufferedSMS(void) {
 */
 // Add message and number at end of buffers, to be processed later on
 void sendSMS(const char* smsNumber, const char* smsMessage) {
+	if (localTraceFlag) enterRoutine(__func__);
 	messageBuffer += String(smsMessage) + String('\255');
 	numberBuffer += String(smsNumber) + String('\255');
+}
+
+/*!
+
+	\brief	[Private] Debug: trace each entered routine
+
+	By default, do nothing as very verbose. Enable it only when really needed.
+
+	Nothing is done if routine is the same as the previously printed
+
+	\param[in]	routine name to display
+	\return	none
+
+*/
+void enterRoutine(const char* routineName) {
+	trace_debug_P("Entering %s", routineName);
 }
