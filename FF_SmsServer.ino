@@ -459,12 +459,10 @@ MQTT_CONNECT_CALLBACK(onMqttConnectCallback) {
 */
 MQTT_MESSAGE_CALLBACK(onMqttMessageCallback) {
 	if (localTraceFlag) enterRoutine(__func__);
-    char localPayload[250];
-    size_t localSize = sizeof(localPayload);
+    char localPayload[len + 1];
 
-    if (len < localSize) localSize = len;                   // Maximize len to copy
-    memset(localPayload, '\0', sizeof(localPayload));
-    strncpy(localPayload, payload, localSize);
+    strncpy(localPayload, payload, len);
+	localPayload[len] = 0;
 
 	trace_info_P("Received MQTT message %s on topic %s, len=%d, index=%d, total=%d", localPayload, topic, len, index, total);
 
