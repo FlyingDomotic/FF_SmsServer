@@ -754,10 +754,10 @@ void loop() {
 						if (restartCount >= MAX_RESTART) {
 							gsmState = PSTR("Restarting ESP"); 
 							trace_info_P("%s after %d restart", gsmState.c_str(), restartCount);
-							delay(500);
 							#ifdef FF_TRACE_USE_SERIAL
 								Serial.flush();
 							#endif
+							delay(1000);
 							ESP.restart();
 						}
 						gsmState = PSTR("Restarting GSM"); 
@@ -777,6 +777,14 @@ void loop() {
 						}
 					}
 				}
+			// Check remaining space
+			uint16_t freeBlockSize = ESP.getMaxFreeBlockSize();
+			if (freeBlockSize < 4096) {
+				trace_error_P("Largest free block is %d - Restarting!!", freeBlockSize);
+				delay(1000);
+				ESP.restart();
+			}
+
 			}
 	#ifdef ISOLATION_RELAY_PIN
 		}
@@ -905,9 +913,10 @@ void sendSMS(const char* smsNumber, const char* smsMessage) {
 	if (localTraceFlag) enterRoutine(__func__);
 	// Dirty workaround until we manage multi-part messages:
 	//	Convert message to ASCII 7 bits if lenght is 70 or more characters
-	if (strlen(smsMessage) >= 70) {
-		char ascii7[strlen(smsMessage)];
-		dirtyUtf8toAscii7(ascii7, smsMessage, strlen(ascii7));
+	size_t msgLength = strlen(smsMessage);
+	if (msgLength >= 70) {
+		char ascii7[msgLength+1];
+		dirtyUtf8toAscii7(ascii7, smsMessage, msgLength);
 		messageBuffer += String(ascii7).substring(0, 180) + String('\255');
 	} else {
 		// Another dirty workaround until we manage multi-part messages:
@@ -928,32 +937,123 @@ void sendSMS(const char* smsNumber, const char* smsMessage) {
 
 */
 void dirtyUtf8toAscii7(char dest[], const char source[], int destLen) {
-if (localTraceFlag) enterRoutine(__func__);
+	if (localTraceFlag) enterRoutine(__func__);
   int j = 0;
   for (int i = 0; source[i] && j < destLen; i++) {
-    if (source[i] == 195) {
+		if (source[i] == 0xc2) {
+			i++;
+			switch (source[i]) {
+				case 0xa0:									// No break space
+				case 0xb0:									// Degree sign "°"
+					dest[j++] = ' ';
+					break;
+				default:
+					dest[j++] = '?';
+					break;
+			}
+		} else if (source[i] == 0xc3) {
       i++;
       switch (source[i]) {
-        case 160:
+				case 0xb7:
+					dest[j++] = '/';
+					break;
+				case 0x80:
+				case 0x81:
+				case 0x82:
+				case 0x83:
+				case 0x84:
+				case 0x85:
+					dest[j++] = 'A';
+					break;
+				case 0xa0:
+				case 0xa1:
+				case 0xa2:
+				case 0xa3:
+				case 0xa4:
+				case 0xa5:
           dest[j++] = 'a';
           break;
-        case 168:
-        case 169:
-        case 170:
+				case 0x87:
+					dest[j++] = 'C';
+					break;
+				case 0xa7:
+					dest[j++] = 'c';
+					break;
+				case 0x88:
+				case 0x89:
+				case 0x8a:
+				case 0x8b:
+					dest[j++] = 'E';
+					break;
+				case 0xa8:
+				case 0xa9:
+				case 0xaa:
+				case 0xab:
           dest[j++] = 'e';
           break;
-        case 174:
+				case 0x8c:
+				case 0x8d:
+				case 0x8e:
+				case 0x8f:
+					dest[j++] = 'I';
+					break;
+				case 0xac:
+				case 0xad:
+				case 0xae:
+				case 0xaf:
           dest[j++] = 'i';
           break;
-        case 180:
+				case 0x91:
+					dest[j++] = 'N';
+					break;
+				case 0xb1:
+					dest[j++] = 'n';
+					break;
+				case 0x92:
+				case 0x93:
+				case 0x94:
+				case 0x95:
+				case 0x96:
+				case 0x98:
+					dest[j++] = 'O';
+					break;
+				case 0xb2:
+				case 0xb4:
+				case 0xb5:
+				case 0xb6:
+				case 0xb8:
           dest[j++] = 'o';
           break;
-        case 185:
+				case 0x99:
+				case 0x9a:
+				case 0x9b:
+				case 0x9c:
+					dest[j++] = 'U';
+					break;
+				case 0xb3:
+				case 0xb9:
+				case 0xba:
+				case 0xbb:
+				case 0xbc:
           dest[j++] = 'u';
           break;
-        case 167:
-          dest[j++] = 'c';
+				case 0x97:
+					dest[j++] = 'x';
+					break;
+				case 0x9d:
+					dest[j++] = 'Y';
+					break;
+				case 0xbd:
+				case 0xbf:
+					dest[j++] = 'y';
+					break;
+				case 0x86:
+					dest[j++] = 'A';
+					if (j < destLen) dest[j++] = 'E';
           break;
+				case 0xa6:
+					dest[j++] = 'a';
+					if (j < destLen) dest[j++] = 'e';
         default:
           dest[j++] = '?';
           break;
