@@ -100,8 +100,7 @@ def on_subscribe(mosq, obj, mid, granted_qos):
 
 # Send an email to me
 def sendMail(subject, message, to=''):
-    with smtplib.SMTP_SSL(mailServer, mailPort, context=ssl.create_default_context()) as server:
-        server.login(mailUser, mailKey)
+    with smtplib.SMTP(mailServer) as server:
         msg = MIMEText(message, _charset='UTF-8')
         msg['Subject'] = hostName +": "+subject
         msg['Date'] = email.utils.formatdate(localtime=1)
@@ -149,17 +148,14 @@ MQTT_KEY = "*myMqttKey*"
 
 # Mail settings
 mailSender = "*myMailSender*"
-mailUser = "*myMailUser*"
-mailKey = "*myMailKey*"
-mailServer = "*myMailServer*"
-mailPort = *myMailPort*
+mailServer = "localhost"
 
 ### End of settings ###
 # Log settings
 log_format = "%(asctime)s:%(levelname)s:%(message)s"
-logger = logging.getLogger(appName)
+logger = logging.getLogger(cdeFile)
 logger.setLevel(logging.INFO)
-logHandler = handlers.TimedRotatingFileHandler(str(currentpath) + cdeFile +'_'+hostName+'.log', when='W0', interval=1)
+logHandler = handlers.TimedRotatingFileHandler(os.path.join(currentPath, cdeFile +'_'+hostName+'.log'), when='W0', interval=1)
 logHandler.suffix = "%Y%m%d"
 logHandler.setLevel(logging.INFO)
 formatter = logging.Formatter(log_format)

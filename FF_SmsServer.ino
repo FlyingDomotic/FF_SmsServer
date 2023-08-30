@@ -120,6 +120,7 @@ static DEBUG_COMMAND_CALLBACK(onDebugCommandCallback);
 static SERIAL_COMMAND_CALLBACK(onSerialCommandCallback);
 static REST_COMMAND_CALLBACK(onRestCommandCallback);
 static MQTT_CONNECT_CALLBACK(onMqttConnectCallback);
+static MQTT_DISCONNECT_CALLBACK(onMqttDisconnectCallback);
 static MQTT_MESSAGE_CALLBACK(onMqttMessageCallback);
 static HELP_MESSAGE_CALLBACK(onHelpMessageCallback);
 
@@ -431,6 +432,7 @@ REST_COMMAND_CALLBACK(onRestCommandCallback) {
 */
 MQTT_CONNECT_CALLBACK(onMqttConnectCallback) {
 	if (localTraceFlag) enterRoutine(__func__);
+	trace_info_P("MQTT connected", NULL);
 	// Subscribe to MQTT topics we want to get
 	if (mqttGetTopic != "") {
 		trace_info_P("Subscribing to %s", mqttGetTopic.c_str());
@@ -440,6 +442,19 @@ MQTT_CONNECT_CALLBACK(onMqttConnectCallback) {
 		trace_info_P("Subscribing to %s", (mqttLwtTopic+"+").c_str());
 		FF_WebServer.mqttSubscribeRaw((mqttLwtTopic+"+").c_str());
 	}
+}
+
+/*!
+
+	This routine is called each time MQTT is disconnected
+
+	\param	Disconnect reason
+	\return	none
+
+*/
+MQTT_DISCONNECT_CALLBACK(onMqttDisconnectCallback) {
+	if (localTraceFlag) enterRoutine(__func__);
+	trace_info_P("MQTT disconnected, reason %d", disconnectReason);
 }
 
 /*!
@@ -459,10 +474,12 @@ MQTT_CONNECT_CALLBACK(onMqttConnectCallback) {
 */
 MQTT_MESSAGE_CALLBACK(onMqttMessageCallback) {
 	if (localTraceFlag) enterRoutine(__func__);
-    char localPayload[len + 1];
+    char localPayload[250];
+    size_t localSize = sizeof(localPayload);
 
-    strncpy(localPayload, payload, len);
-	localPayload[len] = 0;
+    if (len < localSize) localSize = len;                   // Maximize len to copy
+    memset(localPayload, '\0', sizeof(localPayload));
+    strncpy(localPayload, payload, localSize);
 
 	trace_info_P("Received MQTT message %s on topic %s, len=%d, index=%d, total=%d", localPayload, topic, len, index, total);
 
@@ -663,6 +680,7 @@ void setup() {
     FF_WebServer.setSerialCommandCallback(&onSerialCommandCallback);
     FF_WebServer.setRestCommandCallback(&onRestCommandCallback);
     FF_WebServer.setMqttConnectCallback(&onMqttConnectCallback);
+    FF_WebServer.setMqttDisconnectCallback(&onMqttDisconnectCallback);
     FF_WebServer.setMqttMessageCallback(&onMqttMessageCallback);
 	FF_WebServer.setHelpMessageCallback(&onHelpMessageCallback);
 
@@ -885,9 +903,68 @@ void sendBufferedSMS(void) {
 // Add message and number at end of buffers, to be processed later on
 void sendSMS(const char* smsNumber, const char* smsMessage) {
 	if (localTraceFlag) enterRoutine(__func__);
-	messageBuffer += String(smsMessage) + String('\255');
+	// Dirty workaround until we manage multi-part messages:
+	//	Convert message to ASCII 7 bits if lenght is 70 or more characters
+	if (strlen(smsMessage) >= 70) {
+		char ascii7[strlen(smsMessage)];
+		dirtyUtf8toAscii7(ascii7, smsMessage, strlen(ascii7));
+		messageBuffer += String(ascii7).substring(0, 180) + String('\255');
+	} else {
+		// Another dirty workaround until we manage multi-part messages:
+		//		Truncate message to 180 characters
+		messageBuffer += String(smsMessage).substring(0, 180) + String('\255');
+	}
 	numberBuffer += String(smsNumber) + String('\255');
 }
+
+/*!
+
+	\brief	Dirty UTF8 to Ascii 7 conversion
+
+	\param[out]	Destination characters
+	\param[in]	Source characters
+	\param[in]	Destination length
+	\return	none
+
+*/
+void dirtyUtf8toAscii7(char dest[], const char source[], int destLen) {
+if (localTraceFlag) enterRoutine(__func__);
+  int j = 0;
+  for (int i = 0; source[i] && j < destLen; i++) {
+    if (source[i] == 195) {
+      i++;
+      switch (source[i]) {
+        case 160:
+          dest[j++] = 'a';
+          break;
+        case 168:
+        case 169:
+        case 170:
+          dest[j++] = 'e';
+          break;
+        case 174:
+          dest[j++] = 'i';
+          break;
+        case 180:
+          dest[j++] = 'o';
+          break;
+        case 185:
+          dest[j++] = 'u';
+          break;
+        case 167:
+          dest[j++] = 'c';
+          break;
+        default:
+          dest[j++] = '?';
+          break;
+      }
+    } else {
+      dest[j++] = source[i];
+    }
+  }
+  dest[j] = 0;
+}
+
 
 /*!
 
