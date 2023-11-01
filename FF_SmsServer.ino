@@ -35,7 +35,7 @@
 
 */
 
-#define VERSION "1.0.0"										// Version of this code
+#define VERSION "1.0.10"									// Version of this code
 #include <FF_WebServer.h>									// WebServer class https://github.com/FlyingDomotic/FF_WebServer
 
 //	User internal data
@@ -70,19 +70,12 @@ unsigned long isolationTime = ISOLATION_TIME;				// Init isolation time
 unsigned long isolationStartTime = 0;						// Init isolation start time
 int restartCount = 0;										// Count of restart
 
-String lastReceivedNumber = "";
-String lastReceivedDate = "";
-String lastReceivedMessage = "";
-String lastSentNumber = "";
-String lastSentDate = "";
-String lastSentMessage = "";
 String gsmState = "";
 String messageBuffer = "";
 String numberBuffer = "";
 String listeningNodes = "";
 
 // SMS hardware stuff
-char lastSmsNumber[MAX_SMS_NUMBER_LEN];						// Last valid SMS caller
 bool runFlag = true;										// A6 modem run flag (false = don't use A6)
 
 #include <FF_A6lib.h>
@@ -95,7 +88,7 @@ static FF_A6lib A6Modem;									// A6 GSM Modem
 // Routine/function definition
 void sendBufferedSMS(void);
 void sendSMS(const char* smsNumber, const char* smsMessage);
-String cleanMessage(String message);
+String cleanMessage(const char* message);
 String getResetCause(void);
 
 String resetCause = "";										// Used to save reset cause
@@ -177,12 +170,12 @@ DEBUG_COMMAND_CALLBACK(onDebugCommandCallback) {
 		trace_info_P("runFlag=%d", runFlag);
 		trace_info_P("gsmState=%s", gsmState.c_str());
 		A6Modem.debugState();
-		trace_info_P("lastReceivedNumber=%s", lastReceivedNumber.c_str());
-		trace_info_P("lastReceivedDate=%s", lastReceivedDate.c_str());
-		trace_info_P("lastReceivedMessage=%s", lastReceivedMessage.c_str());
-		trace_info_P("lastSentNumber=%s", lastSentNumber.c_str());
-		trace_info_P("lastSentDate=%s", lastSentDate.c_str());
-		trace_info_P("lastSentMessage=%s", lastSentMessage.c_str());
+		trace_info_P("lastReceivedNumber=%s", A6Modem.getLastReceivedNumber());
+		trace_info_P("lastReceivedDate=%s", A6Modem.getLastReceivedDate());
+		trace_info_P("lastReceivedMessage=%s", A6Modem.getLastReceivedMessage());
+		trace_info_P("lastSentNumber=%s", A6Modem.getLastSentNumber());
+		trace_info_P("lastSentDate=%s", A6Modem.getLastSentDate());
+		trace_info_P("lastSentMessage=%s", A6Modem.getLastSentMessage());
 		trace_info_P("listeningNodes=%s", listeningNodes.substring(2, listeningNodes.length()-2).c_str());
 		trace_info_P("getFreeHeap()=%d", ESP.getFreeHeap());
 		trace_info_P("getMaxFreeBlockSize()=%d", ESP.getMaxFreeBlockSize());
@@ -264,7 +257,7 @@ SERIAL_COMMAND_CALLBACK(onSerialCommandCallback) {
 	// Only analyze message starting with "{"
 	if (command[0] == '{') {
 		// Analyze JSON message (will fail if payload is empty)
-		DynamicJsonDocument jsonDoc(MAX_SMS_MESSAGE_LEN);
+		DynamicJsonDocument jsonDoc(512);
 		auto error = deserializeJson(jsonDoc, command);
 		if (error) {
 			trace_error_P("Failed to parse >%s<. Error: %s", command.c_str(), error.c_str());
@@ -295,6 +288,7 @@ SERIAL_COMMAND_CALLBACK(onSerialCommandCallback) {
 			trace_error_P("Number missing from MQTT payload %s", command.c_str());
 			return false;
 		}
+
 		sendSMS(number.c_str(), message.c_str());		// Ok, store the SMS in queue
 		#ifndef NO_SERIAL_COMMAND_CALLBACK
 			#ifdef SEND_SMS_FROM_SERIAL
@@ -325,7 +319,7 @@ SERIAL_COMMAND_CALLBACK(onSerialCommandCallback) {
 */
 REST_COMMAND_CALLBACK(onRestCommandCallback) {
 	if (localTraceFlag) enterRoutine(__func__);
-    char tempBuffer[600];
+    char tempBuffer[700];
     tempBuffer[0] = 0;
 	if (request->url() == "/rest/values") {
 		snprintf_P(tempBuffer, sizeof(tempBuffer),
@@ -351,12 +345,12 @@ REST_COMMAND_CALLBACK(onRestCommandCallback) {
 			,VERSION, FF_WebServer.getWebServerVersion()
 			,NTP.getUptimeString().c_str()
 			// -- Put here values in index_user.html
-			,lastReceivedNumber.c_str()
-			,lastReceivedDate.c_str()
-			,cleanMessage(lastReceivedMessage).c_str()
-			,lastSentNumber.c_str()
-			,lastSentDate.c_str()
-			,cleanMessage(lastSentMessage).c_str()
+			, A6Modem.getLastReceivedNumber()
+			, A6Modem.getLastReceivedDate()
+			, cleanMessage(A6Modem.getLastReceivedMessage()).c_str()
+			, A6Modem.getLastSentNumber()
+			, A6Modem.getLastSentDate()
+			, cleanMessage(A6Modem.getLastSentMessage()).c_str()
 			,gsmState.c_str()
             ,(listeningNodes.length()>2)? listeningNodes.substring(2, listeningNodes.length()-2).c_str():"[None]"
 			,resetCause.c_str()
@@ -370,13 +364,13 @@ REST_COMMAND_CALLBACK(onRestCommandCallback) {
 		// /rest/params or /rest/send -> send an SMS
 		//		&number=0123456789 : phone number to send message to
 		//		&message=abcdefg hijklm nopqrs : message to send
-		char paramList[200];								// Given parameters, excluding initial &
+		char paramList[600];								// Given parameters, excluding initial &
 		char *params[3][2];									// Will contain 3 couples of param/value
 		memset(paramList, 0, sizeof(paramList));			// Clear param list
 		strncpy(paramList, 									// Copy to param list
 			request->url().substring(request->url().indexOf('&')+1).c_str() // From URL
 			, sizeof(paramList));							// Max size
-		trace_debug_P("Params: %s (%d)", paramList, request->url().indexOf('&'));
+		trace_debug_P("Params: %s", paramList);
 		int nbParams = FF_WebServer.parseUrlParams(paramList, params, 3, true);	// Extract up to 3 parameters
 		String number = "";
 		String message = "";
@@ -507,7 +501,7 @@ MQTT_MESSAGE_CALLBACK(onMqttMessageCallback) {
 	}
 
 	// Analyze JSON message (will fail if payload is empty)
-	DynamicJsonDocument jsonDoc(MAX_SMS_MESSAGE_LEN);
+	DynamicJsonDocument jsonDoc(512);
 	auto error = deserializeJson(jsonDoc, localPayload);
 	if (error) {
 		trace_error_P("Failed to parse %s. Error: %s", localPayload, error.c_str());
@@ -567,7 +561,7 @@ MQTT_MESSAGE_CALLBACK(onMqttMessageCallback) {
 	\return	Cleaned message
 
 */
-String cleanMessage(String message){
+String cleanMessage(const char* message){
 	if (localTraceFlag) enterRoutine(__func__);
 	String cleanedMessage = message;
 	cleanedMessage.replace("\n", "\\n");
@@ -654,17 +648,11 @@ String getResetCause(void) {
 //	This is the setup routine.
 void setup() {
 	// Initialize Strings with PSTR (flash) values
-	lastReceivedNumber = PSTR("[none]");
-	lastReceivedDate = PSTR("[never]");
-	lastReceivedMessage = PSTR("[no message]");
-	lastSentNumber = PSTR("[none]");
-	lastSentDate = PSTR("[never]");
-	lastSentMessage = PSTR("[no message]");
 	gsmState = PSTR("Not started");
 	listeningNodes = PSTR(", ");
 
 	// Open serial connection
-	Serial.begin(74880);
+	Serial.begin(74880); 
 	// Start Little File System
 	LittleFS.begin();
     // Enable debug
@@ -703,7 +691,7 @@ void setup() {
 	#ifdef ATTACHED_NANO_SLAVE_ID
 		// Start Wire as master
 		Wire.begin();
-		Wire.setClockStretchLimit(40000);    // Slave wait for answer time in µs (default to 230)
+		Wire.setClockStretchLimit(40000);    // Slave wait for answer time in Âµs (default to 230)
 		delay(10);
 	#endif
 
@@ -716,6 +704,7 @@ void setup() {
 void loop() {
 	// Manage Web Server
 	FF_WebServer.handle();
+
 	// User part of loop
 	#ifdef ATTACHED_NANO_SLAVE_ID
 		if (nanoResetTime){										// Are we resetting Nano?
@@ -816,9 +805,6 @@ void readSmsCallback(int pendingSmsIndex, const char* smsNumber, const char* sms
 	}
 	gsmState = PSTR("SMS read");							// Update state
 	trace_debug_P("Read SMS from %s, date %s, >%s<", smsNumber, smsDate, smsMessage);
-	lastReceivedNumber = String(smsNumber);					// Save received number
-	lastReceivedDate = String(smsDate);						// ... date
-	lastReceivedMessage = String(smsMessage);				// ... and message
 	// Check for a known sender phone number 
 	int endPosition = 0;
 	int startPosition = 0;
@@ -831,13 +817,11 @@ void readSmsCallback(int pendingSmsIndex, const char* smsNumber, const char* sms
 		startPosition = endPosition + 1;
 	}
 	if (endPosition > 0) {									// Sender is known
-		// Save number
-		strncpy(lastSmsNumber, smsNumber, sizeof(lastSmsNumber));
 		// Compose jsonMessage
 		DynamicJsonDocument jsonDoc(512);
-		jsonDoc["number"] = lastReceivedNumber;				// Set received number
-		jsonDoc["date"] = lastReceivedDate;					// ... date
-		jsonDoc["message"] = lastReceivedMessage;			// ... and message
+		jsonDoc["number"] = smsNumber;						// Set received number
+		jsonDoc["date"] = smsDate;							// ... date
+		jsonDoc["message"] = smsMessage;					// ... and message
 		String temp;
 		serializeJson(jsonDoc, temp);						// Convert json to string
 		#ifdef PRINT_RECEIVED_SMS_ON_SERIAL
@@ -865,34 +849,35 @@ void readSmsCallback(int pendingSmsIndex, const char* smsNumber, const char* sms
 
 */
 void sendBufferedSMS(void) {
+	String message;
+	String number;
+
 	if (localTraceFlag) enterRoutine(__func__);
 	size_t pos = messageBuffer.indexOf('\255');
 	if (pos != std::string::npos) {
 		// We have other messages, extract first one and remove it 
-		lastSentMessage = messageBuffer.substring(0, pos);
+		message = messageBuffer.substring(0, pos);
 		messageBuffer = messageBuffer.substring(pos + 1);
 	} else {
 		// This is the last message, load it and clear buffer
-		lastSentMessage = messageBuffer;
+		message = messageBuffer;
 		messageBuffer = "";
 	}
 	// Do the same with numberBuffer
 	pos = numberBuffer.indexOf('\255');
 	if (pos != std::string::npos) {
-		lastSentNumber = numberBuffer.substring(0, pos);
+		number = numberBuffer.substring(0, pos);
 		numberBuffer = numberBuffer.substring(pos + 1);
 	} else {
-		lastSentNumber = numberBuffer;
+		number = numberBuffer;
 		numberBuffer = "";
 	}
-	// Save current date and time
-	lastSentDate = NTP.getDateStr() + " " + NTP.getTimeStr();
 	gsmState="Sending SMS";
 	// Trace
-	trace_debug_P("Send SMS to %s: %s", lastSentNumber.c_str(), lastSentMessage.c_str());
+	trace_debug_P("Send SMS to %s: %s", number.c_str(), message.c_str());
 
 	// Send SMS
-	A6Modem.sendSMS(lastSentNumber.c_str(), lastSentMessage.c_str()); 
+	A6Modem.sendSMS(number.c_str(), message.c_str()); 
 }
 
 /*!
@@ -911,18 +896,7 @@ void sendBufferedSMS(void) {
 // Add message and number at end of buffers, to be processed later on
 void sendSMS(const char* smsNumber, const char* smsMessage) {
 	if (localTraceFlag) enterRoutine(__func__);
-	// Dirty workaround until we manage multi-part messages:
-	//	Convert message to ASCII 7 bits if lenght is 70 or more characters
-	size_t msgLength = strlen(smsMessage);
-	if (msgLength >= 70) {
-		char ascii7[msgLength+1];
-		dirtyUtf8toAscii7(ascii7, smsMessage, msgLength);
-		messageBuffer += String(ascii7).substring(0, 180) + String('\255');
-	} else {
-		// Another dirty workaround until we manage multi-part messages:
-		//		Truncate message to 180 characters
-		messageBuffer += String(smsMessage).substring(0, 180) + String('\255');
-	}
+	messageBuffer += String(smsMessage) + String('\255');
 	numberBuffer += String(smsNumber) + String('\255');
 }
 
@@ -938,13 +912,13 @@ void sendSMS(const char* smsNumber, const char* smsMessage) {
 */
 void dirtyUtf8toAscii7(char dest[], const char source[], int destLen) {
 	if (localTraceFlag) enterRoutine(__func__);
-  int j = 0;
-  for (int i = 0; source[i] && j < destLen; i++) {
+	int j = 0;
+	for (int i = 0; source[i] && j < destLen; i++) {
 		if (source[i] == 0xc2) {
 			i++;
 			switch (source[i]) {
 				case 0xa0:									// No break space
-				case 0xb0:									// Degree sign "°"
+				case 0xb0:									// Degree sign "Â°"
 					dest[j++] = ' ';
 					break;
 				default:
@@ -952,8 +926,8 @@ void dirtyUtf8toAscii7(char dest[], const char source[], int destLen) {
 					break;
 			}
 		} else if (source[i] == 0xc3) {
-      i++;
-      switch (source[i]) {
+			i++;
+			switch (source[i]) {
 				case 0xb7:
 					dest[j++] = '/';
 					break;
@@ -971,8 +945,8 @@ void dirtyUtf8toAscii7(char dest[], const char source[], int destLen) {
 				case 0xa3:
 				case 0xa4:
 				case 0xa5:
-          dest[j++] = 'a';
-          break;
+					dest[j++] = 'a';
+					break;
 				case 0x87:
 					dest[j++] = 'C';
 					break;
@@ -989,8 +963,8 @@ void dirtyUtf8toAscii7(char dest[], const char source[], int destLen) {
 				case 0xa9:
 				case 0xaa:
 				case 0xab:
-          dest[j++] = 'e';
-          break;
+					dest[j++] = 'e';
+					break;
 				case 0x8c:
 				case 0x8d:
 				case 0x8e:
@@ -1001,8 +975,8 @@ void dirtyUtf8toAscii7(char dest[], const char source[], int destLen) {
 				case 0xad:
 				case 0xae:
 				case 0xaf:
-          dest[j++] = 'i';
-          break;
+					dest[j++] = 'i';
+					break;
 				case 0x91:
 					dest[j++] = 'N';
 					break;
@@ -1022,8 +996,8 @@ void dirtyUtf8toAscii7(char dest[], const char source[], int destLen) {
 				case 0xb5:
 				case 0xb6:
 				case 0xb8:
-          dest[j++] = 'o';
-          break;
+					dest[j++] = 'o';
+					break;
 				case 0x99:
 				case 0x9a:
 				case 0x9b:
@@ -1035,8 +1009,8 @@ void dirtyUtf8toAscii7(char dest[], const char source[], int destLen) {
 				case 0xba:
 				case 0xbb:
 				case 0xbc:
-          dest[j++] = 'u';
-          break;
+					dest[j++] = 'u';
+					break;
 				case 0x97:
 					dest[j++] = 'x';
 					break;
@@ -1050,19 +1024,19 @@ void dirtyUtf8toAscii7(char dest[], const char source[], int destLen) {
 				case 0x86:
 					dest[j++] = 'A';
 					if (j < destLen) dest[j++] = 'E';
-          break;
+					break;
 				case 0xa6:
 					dest[j++] = 'a';
 					if (j < destLen) dest[j++] = 'e';
-        default:
-          dest[j++] = '?';
-          break;
-      }
-    } else {
-      dest[j++] = source[i];
-    }
-  }
-  dest[j] = 0;
+				default:
+					dest[j++] = '?';
+					break;
+			}
+		} else {
+			dest[j++] = source[i];
+		}
+	}
+	dest[j] = 0;
 }
 
 

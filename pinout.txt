@@ -1,0 +1,57 @@
+ESP8266
+				(Antenna side)
+				  +------+
+(to ATtini 5)RST -+      +-	TX	N/C
+		 N/C  A0 -+      +-	RX	N/C
+		 N/C  D0 -+      +-	D1	(to Nano A5)
+ (to GA6 RST) D5 -+      +-	D2	(to Nano A4)
+(to Nano RST) D6 -+      +-	D3	N/C	
+ (to GA6 URX) D7 -+      +-	D4	(to ATtiny 6) 
+ (to GA5 UTX) D8 -+      +-	G	GND
+		 N/C 3V3 -+      +-	5V	5V
+				  +------+
+				(USB side)
+
+
+GA6
+				(Antenna side)
+				  +------+
+		5V	 VCC -+      +-	HTX	N/C
+		N/C	IO14 -+      +-	HRX	N/C
+		N/C	 NET -+      +-	G	GND
+		N/C	 PWR -+      +-	URX (to ESP D7)
+		N/C	 INT -+      +-	UTX (to ESP D8)	
+(to ESP D5)	 RST -+      +-	E_R	N/C
+		N/C	  M+ -+      +-	E_L	N/C
+		N/C	  M- -+      +-	NC	N/C
+				  +------+
+
+ATtiny 85
+           +-----+
+    N/C 1 -+ O   +- 8 VCC (3V to 5V)
+    N/C 2 -+     +- 7 N/C
+    N/C 3 -+     +- 6 Trigger (to ESP D4)
+    GND 4 -+     +- 5 Reset (to ESP RST through a 470 Ohms resistor)
+           +-----+
+
+Arduino Nano
+				  +------+
+		N/C	 TX1 -+      +-	VIN	N/C
+		N/C	 RX0 -+      +-	GND	GND
+ (to ESP D6) RST -+      +-	RST	(to ESP D6)
+		N/C	 GND -+      +-	5V	5V
+		N/C	  D2 -+      +-	A7	N/C
+		N/C	  D3 -+      +-	A6	N/C
+		N/C	  D4 -+      +-	A5	(to ESP D1)
+		N/C	  D5 -+      +-	A4	(to ESP D2)
+		N/C	  D6 -+      +-	A3	N/C
+		N/C	  D7 -+      +-	A2	N/C
+		N/C	  D8 -+      +-	A1	N/C
+		N/C	  D9 -+      +-	A0	N/C
+		N/C	 D10 -+      +-	REF	N/C
+		N/C	 D11 -+      +-	3V3	N/C
+		N/C	 D12 -+      +-	D13	N/C
+				  +------+
+				(USB side)
+
+
