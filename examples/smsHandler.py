@@ -18,7 +18,7 @@ Author: Flying Domotic
 License: GNU GPL V3
 """
 
-fileVersion = "1.0.0"
+fileVersion = "1.1.0"
 
 import paho.mqtt.client as mqtt
 import pathlib
@@ -37,65 +37,69 @@ import shlex
 import subprocess
 from datetime import datetime
 
-def on_connect(client, userdata, flags, rc):
-  mqttClient.subscribe(MQTT_RECEIVE_TOPIC, 0)
+def onConnect(client, userdata, flags, reasonCode, properties=None):
+    # Check for connection state
+    if reasonCode != 'Success' and str(reasonCode) != '0':
+        logger.error(F"Failed to connect - Reason code={reasonCode}")
+        return
+    mqttClient.subscribe(MQTT_RECEIVE_TOPIC, 0)
 
-def on_message(mosq, obj, msg):
-  if msg.retain==0:
-    payload = msg.payload.decode("UTF-8")
-    logger.info('Received >'+payload+'< from '+msg.topic)
-    try:
-        jsonData = json.loads(payload)
-    except:
-        #logger.error("Can't decode payload")
-        logger.exception("Can't decode payload")
-        return
-    number = getValue(jsonData, 'number').strip()
-    date = getValue(jsonData, 'date').strip()
-    message = getValue(jsonData, 'message').strip()
-    if message == '' or date == '' or number == '':
-        logger.error("Can't find 'number' or 'date' or 'message'")
-        return
-    if message[:len(hostName)].lower() == hostName.lower():
-        command = message[len(hostName):].strip()
-        logger.info("Command="+command)
+def onMessage(client, userdata, msg):
+    if msg.retain==0:
+        payload = msg.payload.decode("UTF-8")
+        logger.info('Received >'+payload+'< from '+msg.topic)
         try:
-            args = shlex.split(command)
-        except ValueError as err:
-            logger.error("Command split failed with error "+str(err))
-            response = "Error: "+str(err)
-            data = bytes(response, 'UTF-8')
-            logger.info("Response: "+response)
-            sendMail(command, response)
-        else:
-            logger.info("Args="+str(args))
+            jsonData = json.loads(payload)
+        except:
+            #logger.error("Can't decode payload")
+            logger.exception("Can't decode payload")
+            return
+        number = getValue(jsonData, 'number').strip()
+        date = getValue(jsonData, 'date').strip()
+        message = getValue(jsonData, 'message').strip()
+        if message == '' or date == '' or number == '':
+            logger.error("Can't find 'number' or 'date' or 'message'")
+            return
+        if message[:len(hostName)].lower() == hostName.lower():
+            command = message[len(hostName):].strip()
+            logger.info("Command="+command)
             try:
-                result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-                log = result.stdout.decode('UTF-8')
-                logger.info("Log="+log)
-                response = "Result: {:d}".format(result.returncode)
-                logger.info("Response: "+response)
-                # Replace response code by full answer if short
-                if len(log) < 70:
-                    response = log
+                args = shlex.split(command)
+            except ValueError as err:
+                logger.error("Command split failed with error "+str(err))
+                response = "Error: "+str(err)
                 data = bytes(response, 'UTF-8')
-                sendMail(command, log)
-            except OSError as err:
-                logger.error("Command execution failed with error "+str(err))
-                response = "Error: {:s}".format(err.strerror)
                 logger.info("Response: "+response)
                 sendMail(command, response)
-        # compose SMS answer message
-        jsonAnswer = {}
-        jsonAnswer['number'] = str(number)
-        jsonAnswer['message'] = response
-        answerMessage = json.dumps(jsonAnswer)
-        logger.info("Answer: >"+answerMessage+"<")
-        mqttClient.publish(MQTT_SEND_TOPIC, answerMessage)
-    else:
-        logger.info("Ignoring "+message)
+            else:
+                logger.info("Args="+str(args))
+                try:
+                    result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                    log = result.stdout.decode('UTF-8')
+                    logger.info("Log="+log)
+                    response = "Result: {:d}".format(result.returncode)
+                    logger.info("Response: "+response)
+                    # Replace response code by full answer if short
+                    if len(log) < 70:
+                        response = log
+                    data = bytes(response, 'UTF-8')
+                    sendMail(command, log)
+                except OSError as err:
+                    logger.error("Command execution failed with error "+str(err))
+                    response = "Error: {:s}".format(err.strerror)
+                    logger.info("Response: "+response)
+                    sendMail(command, response)
+            # compose SMS answer message
+            jsonAnswer = {}
+            jsonAnswer['number'] = str(number)
+            jsonAnswer['message'] = response
+            answerMessage = json.dumps(jsonAnswer)
+            logger.info("Answer: >"+answerMessage+"<")
+            mqttClient.publish(MQTT_SEND_TOPIC, answerMessage)
+        else:
+            logger.info("Ignoring "+message)
 
-def on_subscribe(mosq, obj, mid, granted_qos):
+def onSubscribe(mosq, obj, mid, granted_qos):
   pass
 
 # Send an email to me
@@ -135,7 +139,6 @@ hostName = socket.gethostname()
 # Get this file name (w/o path & extension)
 cdeFile = pathlib.Path(__file__).stem
 
-
 ### Here are settings to be adapted to your context ###
 
 # MQTT Settings
@@ -151,6 +154,7 @@ mailSender = "*myMailSender*"
 mailServer = "localhost"
 
 ### End of settings ###
+
 # Log settings
 log_format = "%(asctime)s:%(levelname)s:%(message)s"
 logger = logging.getLogger(cdeFile)
@@ -168,10 +172,15 @@ random.seed()
 mqttClientName = pathlib.Path(__file__).stem+'_{:x}'.format(random.randrange(65535))
 
 # Initialize MQTT client
-mqttClient = mqtt.Client(mqttClientName)
-mqttClient.on_message = on_message
-mqttClient.on_connect = on_connect
-mqttClient.on_subscribe = on_subscribe
+# Try to find CallbackAPIVersion (exists starting on version 2)
+try:
+    from paho.mqtt.enums import CallbackAPIVersion
+    mqttClient = mqtt.Client(client_id=mqttClientName, callback_api_version=CallbackAPIVersion.VERSION2)
+except AttributeError:
+    mqttClient = mqtt.Client(client_id=mqttClientName)
+mqttClient.on_message = onMessage
+mqttClient.on_connect = onConnect
+mqttClient.on_subscribe = onSubscribe
 mqttClient.username_pw_set(MQTT_ID, MQTT_KEY)
 # Set Last Will Testament (QOS=0, retain=True)
 mqttClient.will_set(MQTT_LWT_TOPIC, '{"state":"down"}', 0, True)
