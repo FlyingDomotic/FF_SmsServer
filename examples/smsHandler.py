@@ -99,9 +99,6 @@ def onMessage(client, userdata, msg):
         else:
             logger.info("Ignoring "+message)
 
-def onSubscribe(mosq, obj, mid, granted_qos):
-  pass
-
 # Send an email to me
 def sendMail(subject, message, to=''):
     with smtplib.SMTP(mailServer) as server:
@@ -150,7 +147,7 @@ MQTT_ID = "*myMqttUser*"
 MQTT_KEY = "*myMqttKey*"
 
 # Mail settings
-mailSender = "*myMailSender*"
+mailSender = "<my mail address>"
 mailServer = "localhost"
 
 ### End of settings ###
@@ -178,9 +175,10 @@ try:
     mqttClient = mqtt.Client(client_id=mqttClientName, callback_api_version=CallbackAPIVersion.VERSION2)
 except AttributeError:
     mqttClient = mqtt.Client(client_id=mqttClientName)
+except ModuleNotFoundError:
+    mqttClient = mqtt.Client(client_id=mqttClientName)
 mqttClient.on_message = onMessage
 mqttClient.on_connect = onConnect
-mqttClient.on_subscribe = onSubscribe
 mqttClient.username_pw_set(MQTT_ID, MQTT_KEY)
 # Set Last Will Testament (QOS=0, retain=True)
 mqttClient.will_set(MQTT_LWT_TOPIC, '{"state":"down"}', 0, True)

@@ -119,6 +119,8 @@ try:
     mqttClient = mqtt.Client(client_id=mqttClientName, callback_api_version=CallbackAPIVersion.VERSION2)
 except AttributeError:
     mqttClient = mqtt.Client(client_id=mqttClientName)
+except ModuleNotFoundError:
+    mqttClient = mqtt.Client(client_id=mqttClientName)
 mqttClient.on_message = onMessage
 mqttClient.on_connect = onConnect
 mqttClient.on_subscribe = onSubscribe
