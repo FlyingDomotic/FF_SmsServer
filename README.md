@@ -287,7 +287,7 @@ MQTT and mail settings are to be set into file before running it, probably as a 
 
 Service definition for examples/smsHandler.py.
 
-#### show to install smsHandler.service
+#### How to install smsHandler.service
 - copy smsHandler.service and smsServer.py [where ever you want]
 - cd [where ever you want]
 - chmod +x *.py
@@ -305,3 +305,19 @@ Service definition for examples/smsHandler.py.
 Contains a schema of a full implementation, with ESP8266, A6/GA6 modem, ATtiby 85 external watchdog and Arduino Nano as IO extender.
 
 Contains also a pin mapping on a 7 x 9 cm PCB.
+
+### examples/smsServerTest.py
+Check if SMS server is working correctly. It sends an SMS (using SMS server) to itself, and checks if it receive it back within a minute. If not, it sends a mail with error, and if smsServerRestartUrl is defined, sends a restart to SMS server.
+
+### examples/smsServerTest.json
+JSON configuration file for examples/smsServerTest.py. Contains the following lines:
+- "mqttServer": IP address or name of MQTT server
+- "mqttPort": Port number of MQTT server (often 1883)
+- "mqttUser": Username to use with MQTT server (or empty if no username needed)
+- "mqttPassword": Password of MQTT server (or empty if no password needed)
+- "mqttReceiveTopic": SMS server receive topic (default to "smsServer/received")
+- "mqttSendTopic": SMS server send topic (default to "smsServer/toSend")
+- "mailSender": mail address of sender/receiver 
+- "mailServer": IP address or name of mail server
+- "smsServerNumber": SMS server phone number. Note that this number should be in authorized phone list in SMS server parameters
+- "smsServerRestartUrl": SMS server restart URL (like "http://<IP address or name of SMS server>/admin/restart") or empty, if no restarted requested.

@@ -1,0 +1,12 @@
+{
+	"mqttServer": "<IpAddressOrNameOfMqttServer",
+	"mqttPort": <portOfMqttServerOften1883>,
+	"mqttUser": "<mqttUserNameOrEMpty>",
+	"mqttPassword": "<mqttPasswordOrEmpty>",
+	"mqttReceiveTopic": "smsServer/received",
+	"mqttSendTopic": "smsServer/toSend",
+	"mailSender": "<mailAddressOfSenderAndReceiver>",
+	"mailServer": "<ipAddressOrNameOfMailServer>",
+	"smsServerNumber": "<smsServerPhoneNumber>",
+	"smsServerRestartCommand": "http://<ipAddressOrNameOfSmsServer>/admin/restart"
+}
