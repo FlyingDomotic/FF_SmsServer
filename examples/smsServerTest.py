@@ -204,18 +204,21 @@ if correctMessageReceived:
 else:    
     # if SMS restart command defined, restart SMS server
     if jsonData['smsServerRestartUrl'] != "":
-        httpAnswer = requests.get(jsonData['smsServerRestartUrl'])
-        if httpAnswer.status_code == 200:
-            logging.info(F"Restarting ESP returned {httpAnswer.text}")
+        try:
+            httpAnswer = requests.get(jsonData['smsServerRestartUrl'])
+        except Exception as e:
+            logging.error(F"Error {str(e)} restarting ESP")
         else:
-            logging.error(F"Restarting ESP returned error {httpAnswer.status_code} {httpAnswer.text}")
+            if httpAnswer.status_code == 200:
+                logging.info(F"Restarting ESP returned {httpAnswer.text}")
+            else:
+                logging.error(F"Restarting ESP returned error {httpAnswer.status_code} {httpAnswer.text}")
     # Stop logging
     logging.shutdown()
     # Open logging file
-    with open(logFile, "rt") as logStream:
-        errors = logStream.readlines()
+    with open(logFile, "r") as logStream:
+        errors = logStream.readl()
     # Print all errors
-    for line in errors:
-        print(line, end="")
+    print(errors, end="")
     # Send a mail with errors
     sendMail("SMS server not answering !!!", errors, jsonData['mailServer'], jsonData['mailSender'])
