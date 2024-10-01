@@ -35,7 +35,7 @@
 
 */
 
-#define VERSION "1.0.10"									// Version of this code
+#define VERSION "1.0.11"									// Version of this code
 #include <FF_WebServer.h>									// WebServer class https://github.com/FlyingDomotic/FF_WebServer
 
 //	User internal data
@@ -809,7 +809,8 @@ void readSmsCallback(int pendingSmsIndex, const char* smsNumber, const char* sms
 	int endPosition = 0;
 	int startPosition = 0;
 	while (endPosition >= 0) {
-		endPosition = allowedNumbers.indexOf(",", startPosition);
+        String allNumbers = allowedNumbers + ",";
+		endPosition = allNumbers.indexOf(",", startPosition);
 		// Compare sending number with extracted one
 		if (!strcmp(smsNumber, allowedNumbers.substring(startPosition, endPosition).c_str())) {
 			break;
