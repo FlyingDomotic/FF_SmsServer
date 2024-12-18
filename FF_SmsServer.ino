@@ -35,7 +35,7 @@
 
 */
 
-#define VERSION "1.0.11"									// Version of this code
+#define CODE_VERSION "1.0.12"								// Version of this code
 #include <FF_WebServer.h>									// WebServer class https://github.com/FlyingDomotic/FF_WebServer
 
 //	User internal data
@@ -60,7 +60,7 @@
 #endif
 #define MAX_RESTART 10										// Reset CPU after this count of modem restart
 
-#define A6_MODEM_SPEED 9600									// A6 GSM modem requested speed
+#define A6_MODEM_SPEED 19200								// A6 GSM modem requested speed
 #define A6_MODEM_RX_PIN D8									// Modem RX pin
 #define A6_MODEM_TX_PIN D7									// Modem TX pin
 
@@ -342,7 +342,7 @@ REST_COMMAND_CALLBACK(onRestCommandCallback) {
 				)
 			// -- Put here values of header line
 			,FF_WebServer.getDeviceName().c_str()
-			,VERSION, FF_WebServer.getWebServerVersion()
+			,CODE_VERSION, FF_WebServer.getWebServerVersion()
 			,NTP.getUptimeString().c_str()
 			// -- Put here values in index_user.html
 			, A6Modem.getLastReceivedNumber()
@@ -696,7 +696,7 @@ void setup() {
 	#endif
 
 	// Start FF_WebServer
-	FF_WebServer.begin(&LittleFS, VERSION);
+	FF_WebServer.begin(&LittleFS, CODE_VERSION);
 }
 
 //	This is the main loop.
