@@ -5,8 +5,10 @@
 	"mqttPassword": "<mqttPasswordOrEmpty>",
 	"mqttReceiveTopic": "smsServer/received",
 	"mqttSendTopic": "smsServer/toSend",
+	"mqttLwtTopic": "smsServer/LWT",
 	"mailSender": "<mailAddressOfSenderAndReceiver>",
 	"mailServer": "<ipAddressOrNameOfMailServer>",
+	"mailReceivers": {"<user1PhoneNumber": "user1MailAddress", "<user2PhoneNumber": "user2MailAddress", "<user3PhoneNumber": "user3MailAddress"},
 	"smsServerNumber": "<smsServerPhoneNumber>",
 	"smsServerRestartCommand": "http://<ipAddressOrNameOfSmsServer>/admin/restart"
 }

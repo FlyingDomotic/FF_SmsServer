@@ -132,7 +132,7 @@ random.seed()
 mqttClientName = pathlib.Path(__file__).stem+'_{:x}'.format(random.randrange(65535))
 
 # Read JSON configuration file
-jsonFile = str(cdeFile)+".json"
+jsonFile = "smsServerParameters.json"
 try:
     with open(jsonFile, "r") as jsonStream:
         jsonBuffer = jsonStream.read()

@@ -35,7 +35,7 @@
 
 */
 
-#define CODE_VERSION "1.0.12"								// Version of this code
+#define CODE_VERSION "1.1.0"								// Version of this code
 #include <FF_WebServer.h>									// WebServer class https://github.com/FlyingDomotic/FF_WebServer
 
 //	User internal data
@@ -60,13 +60,11 @@
 #endif
 #define MAX_RESTART 10										// Reset CPU after this count of modem restart
 
-#define A6_MODEM_SPEED 19200								// A6 GSM modem requested speed
-#define A6_MODEM_RX_PIN D8									// Modem RX pin
-#define A6_MODEM_TX_PIN D7									// Modem TX pin
+#define A6_MODEM_SPEED 115200  								// A6 GSM modem start speed speed
+#define A6_MODEM_RX_PIN D8									// Modem RX pin (on ESP TX=D8)
+#define A6_MODEM_TX_PIN D7									// Modem TX pin (on ESP RX=D7)
 
-#define LOAD_CHAR(dest, src) strncpy_P(dest, PSTR(src), sizeof(dest))
-
-unsigned long isolationTime = ISOLATION_TIME;				// Init isolation time
+unsigned long isolationTime = 0;            				// Init isolation time
 unsigned long isolationStartTime = 0;						// Init isolation start time
 int restartCount = 0;										// Count of restart
 
@@ -77,13 +75,8 @@ String listeningNodes = "";
 
 // SMS hardware stuff
 bool runFlag = true;										// A6 modem run flag (false = don't use A6)
-
-#include <FF_A6lib.h>
-#include <FF_Interval.h>
-FF_Interval smsLoop(200, 200);						        // Execute SMS loop every 200 ms, first run after 200 ms
-
-// These should be static in order for sscanf to work properly
-static FF_A6lib A6Modem;									// A6 GSM Modem
+FF_A6lib A6Modem;		        							// A6 GSM Modem
+unsigned long lastSmsLoopTime = 0;                          // Last time we ran smsLoop
 
 // Routine/function definition
 void sendBufferedSMS(void);
@@ -106,20 +99,22 @@ bool localDebugFlag = false;
 bool localTraceFlag = false;
 
 static void enterRoutine(const char* routineName);
+static void readSmsCallback(int pendingSmsIndex, const char* smsNumber, const char* smsDate, const char* smsMessage);
 
 // Declare here used callbacks
 static CONFIG_CHANGED_CALLBACK(onConfigChangedCallback);
 static DEBUG_COMMAND_CALLBACK(onDebugCommandCallback);
-static SERIAL_COMMAND_CALLBACK(onSerialCommandCallback);
+#ifdef SEND_SMS_FROM_SERIAL
+    static SERIAL_COMMAND_CALLBACK(onSerialCommandCallback);
+#endif
 static REST_COMMAND_CALLBACK(onRestCommandCallback);
 static MQTT_CONNECT_CALLBACK(onMqttConnectCallback);
 static MQTT_DISCONNECT_CALLBACK(onMqttDisconnectCallback);
 static MQTT_MESSAGE_CALLBACK(onMqttMessageCallback);
 static HELP_MESSAGE_CALLBACK(onHelpMessageCallback);
+static WIFI_GOT_IP_CALLBACK(onWifiGotIpCallback);
 
-static void readSmsCallback(int pendingSmsIndex, const char* smsNumber, const char* smsDate, const char* smsMessage);
-
-// Here is callback code
+// Here is callbacks code
 
 /*!
 
@@ -163,6 +158,7 @@ DEBUG_COMMAND_CALLBACK(onDebugCommandCallback) {
 	// "user" command is a standard one used to print user variables
 	if (debugCommand == "user") {
 		// -- Add here your own user variables to print
+		trace_info_P("resetCause=%s", resetCause.c_str());
 		trace_info_P("mqttSendTopic=%s", mqttSendTopic.c_str());
 		trace_info_P("mqttGetTopic=%s", mqttGetTopic.c_str());
 		trace_info_P("mqttLwtTopic=%s", mqttLwtTopic.c_str());
@@ -238,7 +234,8 @@ HELP_MESSAGE_CALLBACK(onHelpMessageCallback) {
 	);
 }
 
-/*!
+#ifdef SEND_SMS_FROM_SERIAL
+    /*!
 
 	This routine is called when a user Serial command is given
 
@@ -249,9 +246,9 @@ HELP_MESSAGE_CALLBACK(onHelpMessageCallback) {
 	\param[in]	command: last Serial command entered by user
 	\return	none
 
-*/
+    */
 
-SERIAL_COMMAND_CALLBACK(onSerialCommandCallback) {
+    SERIAL_COMMAND_CALLBACK(onSerialCommandCallback) {
 	if (localTraceFlag) enterRoutine(__func__);
 	trace_info_P("Serial command >%s< received", command.c_str());
 	// Only analyze message starting with "{"
@@ -298,6 +295,30 @@ SERIAL_COMMAND_CALLBACK(onSerialCommandCallback) {
 		return true;
 	}
 	return false;
+    }
+#endif
+
+/*!
+
+	This routine is called each time WiFi station gets an IP
+
+	\param[in]	data: WiFiEventStationModeGotIP event data
+	\return	none
+
+*/
+WIFI_GOT_IP_CALLBACK(onWifiGotIpCallback) {
+	if (localTraceFlag) trace_info_P("Entering %s", __func__);
+	// Send reset reason
+	struct rst_info *rtc_info = system_get_rst_info();
+	trace_info_P("Reset reason: %x - %s", rtc_info->reason, ESP.getResetReason().c_str());
+	// In case of software restart, send additional info
+	if (rtc_info->reason == REASON_WDT_RST || rtc_info->reason == REASON_EXCEPTION_RST || rtc_info->reason == REASON_SOFT_WDT_RST) {
+		// If crashed, print exception
+		if (rtc_info->reason == REASON_EXCEPTION_RST) {
+			trace_error_P("Fatal exception (%d):", rtc_info->exccause);
+		}
+		trace_error_P("epc1=0x%08x, epc2=0x%08x, epc3=0x%08x, excvaddr=0x%08x, depc=0x%08x", rtc_info->epc1, rtc_info->epc2, rtc_info->epc3, rtc_info->excvaddr, rtc_info->depc);
+	}
 }
 
 /*!
@@ -501,7 +522,7 @@ MQTT_MESSAGE_CALLBACK(onMqttMessageCallback) {
 	}
 
 	// Analyze JSON message (will fail if payload is empty)
-	DynamicJsonDocument jsonDoc(512);
+	JsonDocument jsonDoc;
 	auto error = deserializeJson(jsonDoc, localPayload);
 	if (error) {
 		trace_error_P("Failed to parse %s. Error: %s", localPayload, error.c_str());
@@ -644,7 +665,6 @@ String getResetCause(void) {
 	}
 #endif
 
-
 //	This is the setup routine.
 void setup() {
 	// Initialize Strings with PSTR (flash) values
@@ -652,31 +672,56 @@ void setup() {
 	listeningNodes = PSTR(", ");
 
 	// Open serial connection
-	Serial.begin(74880); 
+	Serial.begin(115200);
+    // Disable garbage on Serial (and ALLOW Serial.swap() to work properly)
+    Serial.setDebugOutput(false); 
+
+    // Print reset cause
+	resetCause = getResetCause();
+    Serial.println("\n\nRestarting...");
+    Serial.println(resetCause);
+    Serial.flush();
+
+    #ifdef FF_TRACE_USE_SERIAL1
+        Serial1.println("\n\nRestarting...");
+        Serial1.println(resetCause);
+        Serial1.setDebugOutput(true); 
+        Serial1.flush();
+    #endif
+
 	// Start Little File System
 	LittleFS.begin();
+
     // Enable debug
-	resetCause = getResetCause();
     FF_TRACE.setLevel(FF_TRACE_LEVEL_DEBUG);
     //FF_WebServer.debugFlag = true;
     //FF_WebServer.traceFlag = true;
 	//localDebugFlag = true;
 	//localTraceFlag = true;
+
     // Set user's callbacks
     FF_WebServer.setConfigChangedCallback(&onConfigChangedCallback);
     FF_WebServer.setDebugCommandCallback(&onDebugCommandCallback);
+    #ifdef SEND_SMS_FROM_SERIAL
     FF_WebServer.setSerialCommandCallback(&onSerialCommandCallback);
+    #endif
     FF_WebServer.setRestCommandCallback(&onRestCommandCallback);
     FF_WebServer.setMqttConnectCallback(&onMqttConnectCallback);
     FF_WebServer.setMqttDisconnectCallback(&onMqttDisconnectCallback);
     FF_WebServer.setMqttMessageCallback(&onMqttMessageCallback);
 	FF_WebServer.setHelpMessageCallback(&onHelpMessageCallback);
+    FF_WebServer.setWifiGotIpCallback(&onWifiGotIpCallback);
+
+	// Start FF_WebServer
+	FF_WebServer.begin(&LittleFS, CODE_VERSION);
 
 	// SMS server specific setup
 	#ifdef ISOLATION_RELAY_PIN
-		digitalWrite(ISOLATION_RELAY_PIN, RELAY_ON);		// Switch 5V relay on, isolate A6 power or set reset PIN
-		pinMode(ISOLATION_RELAY_PIN, OUTPUT);
 		isolationStartTime = millis();
+        isolationTime = ISOLATION_TIME;
+		digitalWrite(ISOLATION_RELAY_PIN, RELAY_ON);		// Switch 5V relay on, isolate A6 power or set reset PIN
+        trace_info_P("Isolation relay switched on for %d ms", isolationTime);
+		pinMode(ISOLATION_RELAY_PIN, OUTPUT);
 	#endif
 	#ifdef ATTACHED_NANO_SLAVE_ID
 		digitalWrite(ATTACHED_NANO_RESET_PIN, ATTACHED_NANO_RESET_ACTIVE);	// Reset Nano
@@ -687,6 +732,7 @@ void setup() {
     A6Modem.registerSmsCb(readSmsCallback);                 // SMS received callback
     A6Modem.debugFlag = true;
     A6Modem.traceFlag = false;
+	
 	//A6Modem.traceEnterFlag = true;
 	#ifdef ATTACHED_NANO_SLAVE_ID
 		// Start Wire as master
@@ -695,15 +741,23 @@ void setup() {
 		delay(10);
 	#endif
 
-	// Start FF_WebServer
-	FF_WebServer.begin(&LittleFS, CODE_VERSION);
+    #ifndef USE_SOFTSERIAL_FOR_A6LIB
+        // Swap Serial as it'll be used by A6lib to connected to modem
+        Serial.swap();
+    #endif
+
+    // Start A6 now (no isolation relay)
+    #ifndef ISOLATION_RELAY_PIN
+        A6Modem.begin(A6_MODEM_SPEED, A6_MODEM_RX_PIN, A6_MODEM_TX_PIN);	// Start A6 communication channel
+        trace_info_P("GSM started!", NULL);
+    #endif
+
+
 }
 
 //	This is the main loop.
 //	Do what ever you want and call FF_WebServer.handle()
 void loop() {
-	// Manage Web Server
-	FF_WebServer.handle();
 
 	// User part of loop
 	#ifdef ATTACHED_NANO_SLAVE_ID
@@ -729,13 +783,11 @@ void loop() {
 				digitalWrite(ISOLATION_RELAY_PIN, RELAY_OFF);	// Switch 5V relay off
 				trace_info_P("Isolation relay switched off", NULL);
 				A6Modem.begin(A6_MODEM_SPEED, A6_MODEM_RX_PIN, A6_MODEM_TX_PIN);	// Start A6 communication channel
-				smsLoop.begin();
 				trace_info_P("GSM started!", NULL);
 			}
 		} else {
 	#endif
-			// Execute SMS loop every 200 ms
-			if (smsLoop.shouldRun()) {
+            if ((millis() - lastSmsLoopTime) >= 1) {           // Wait at least 1 ms between 2 sms loops
 				A6Modem.doLoop();
 				if (runFlag) {
 					if (A6Modem.needRestart()) {
@@ -750,8 +802,15 @@ void loop() {
 							ESP.restart();
 						}
 						gsmState = PSTR("Restarting GSM"); 
-						trace_debug_P("%s", gsmState.c_str());
+                        trace_debug_P("%s, reason %d", gsmState.c_str(), A6Modem.getRestartReason());
+                    	#ifdef ISOLATION_RELAY_PIN
+                            isolationStartTime = millis();
+                            isolationTime = ISOLATION_TIME;
+                            trace_info_P("Isolation relay switched on for %d ms", isolationTime);
+                            digitalWrite(ISOLATION_RELAY_PIN, RELAY_ON);		// Switch 5V relay on, isolate A6 power or set reset PIN
+                        #else
 						A6Modem.begin(A6_MODEM_SPEED, A6_MODEM_RX_PIN, A6_MODEM_TX_PIN);	// Start A6 communication channel
+                        #endif
 					} else {
 						if (A6Modem.isIdle()) {
 							if (messageBuffer != "") {
@@ -765,6 +824,7 @@ void loop() {
 							}
 						}
 					}
+
 				}
 			// Check remaining space
 			uint16_t freeBlockSize = ESP.getMaxFreeBlockSize();
@@ -773,11 +833,14 @@ void loop() {
 				delay(1000);
 				ESP.restart();
 			}
-
+                lastSmsLoopTime = millis();
 			}
 	#ifdef ISOLATION_RELAY_PIN
 		}
 	#endif
+
+    // Manage Web Server
+	FF_WebServer.handle();
 }
 
 //
@@ -819,7 +882,7 @@ void readSmsCallback(int pendingSmsIndex, const char* smsNumber, const char* sms
 	}
 	if (endPosition > 0) {									// Sender is known
 		// Compose jsonMessage
-		DynamicJsonDocument jsonDoc(512);
+		JsonDocument jsonDoc;
 		jsonDoc["number"] = smsNumber;						// Set received number
 		jsonDoc["date"] = smsDate;							// ... date
 		jsonDoc["message"] = smsMessage;					// ... and message
@@ -903,151 +966,9 @@ void sendSMS(const char* smsNumber, const char* smsMessage) {
 
 /*!
 
-	\brief	Dirty UTF8 to Ascii 7 conversion
-
-	\param[out]	Destination characters
-	\param[in]	Source characters
-	\param[in]	Destination length
-	\return	none
-
-*/
-void dirtyUtf8toAscii7(char dest[], const char source[], int destLen) {
-	if (localTraceFlag) enterRoutine(__func__);
-	int j = 0;
-	for (int i = 0; source[i] && j < destLen; i++) {
-		if (source[i] == 0xc2) {
-			i++;
-			switch (source[i]) {
-				case 0xa0:									// No break space
-				case 0xb0:									// Degree sign "°"
-					dest[j++] = ' ';
-					break;
-				default:
-					dest[j++] = '?';
-					break;
-			}
-		} else if (source[i] == 0xc3) {
-			i++;
-			switch (source[i]) {
-				case 0xb7:
-					dest[j++] = '/';
-					break;
-				case 0x80:
-				case 0x81:
-				case 0x82:
-				case 0x83:
-				case 0x84:
-				case 0x85:
-					dest[j++] = 'A';
-					break;
-				case 0xa0:
-				case 0xa1:
-				case 0xa2:
-				case 0xa3:
-				case 0xa4:
-				case 0xa5:
-					dest[j++] = 'a';
-					break;
-				case 0x87:
-					dest[j++] = 'C';
-					break;
-				case 0xa7:
-					dest[j++] = 'c';
-					break;
-				case 0x88:
-				case 0x89:
-				case 0x8a:
-				case 0x8b:
-					dest[j++] = 'E';
-					break;
-				case 0xa8:
-				case 0xa9:
-				case 0xaa:
-				case 0xab:
-					dest[j++] = 'e';
-					break;
-				case 0x8c:
-				case 0x8d:
-				case 0x8e:
-				case 0x8f:
-					dest[j++] = 'I';
-					break;
-				case 0xac:
-				case 0xad:
-				case 0xae:
-				case 0xaf:
-					dest[j++] = 'i';
-					break;
-				case 0x91:
-					dest[j++] = 'N';
-					break;
-				case 0xb1:
-					dest[j++] = 'n';
-					break;
-				case 0x92:
-				case 0x93:
-				case 0x94:
-				case 0x95:
-				case 0x96:
-				case 0x98:
-					dest[j++] = 'O';
-					break;
-				case 0xb2:
-				case 0xb4:
-				case 0xb5:
-				case 0xb6:
-				case 0xb8:
-					dest[j++] = 'o';
-					break;
-				case 0x99:
-				case 0x9a:
-				case 0x9b:
-				case 0x9c:
-					dest[j++] = 'U';
-					break;
-				case 0xb3:
-				case 0xb9:
-				case 0xba:
-				case 0xbb:
-				case 0xbc:
-					dest[j++] = 'u';
-					break;
-				case 0x97:
-					dest[j++] = 'x';
-					break;
-				case 0x9d:
-					dest[j++] = 'Y';
-					break;
-				case 0xbd:
-				case 0xbf:
-					dest[j++] = 'y';
-					break;
-				case 0x86:
-					dest[j++] = 'A';
-					if (j < destLen) dest[j++] = 'E';
-					break;
-				case 0xa6:
-					dest[j++] = 'a';
-					if (j < destLen) dest[j++] = 'e';
-				default:
-					dest[j++] = '?';
-					break;
-			}
-		} else {
-			dest[j++] = source[i];
-		}
-	}
-	dest[j] = 0;
-}
-
-
-/*!
-
 	\brief	[Private] Debug: trace each entered routine
 
 	By default, do nothing as very verbose. Enable it only when really needed.
-
-	Nothing is done if routine is the same as the previously printed
 
 	\param[in]	routine name to display
 	\return	none
