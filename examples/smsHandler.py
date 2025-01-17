@@ -18,7 +18,7 @@ Author: Flying Domotic
 License: GNU GPL V3
 """
 
-fileVersion = "1.1.0"
+fileVersion = "1.2.0"
 
 import paho.mqtt.client as mqtt
 import pathlib
@@ -61,6 +61,9 @@ def onMessage(client, userdata, msg):
             logger.error("Can't find 'number' or 'date' or 'message'")
             return
         if message[:len(hostName)].lower() == hostName.lower():
+            receiver = ""
+            if number in jsonData["mailReceivers"]:
+                receiver = jsonData["mailReceivers"][number]
             command = message[len(hostName):].strip()
             logger.info("Command="+command)
             try:
@@ -68,9 +71,8 @@ def onMessage(client, userdata, msg):
             except ValueError as err:
                 logger.error("Command split failed with error "+str(err))
                 response = "Error: "+str(err)
-                data = bytes(response, 'UTF-8')
                 logger.info("Response: "+response)
-                sendMail(command, response)
+                sendMail(command, response, receiver)
             else:
                 logger.info("Args="+str(args))
                 try:
@@ -82,13 +84,15 @@ def onMessage(client, userdata, msg):
                     # Replace response code by full answer if short
                     if len(log) < 70:
                         response = log
-                    data = bytes(response, 'UTF-8')
-                    sendMail(command, log)
+                    if receiver != None:
+                        sendMail(command, log, receiver)
+                    else:
+                        response += ", mail not in "+jsonFile
                 except OSError as err:
                     logger.error("Command execution failed with error "+str(err))
                     response = "Error: {:s}".format(err.strerror)
                     logger.info("Response: "+response)
-                    sendMail(command, response)
+                    sendMail(command, response, receiver)
             # compose SMS answer message
             jsonAnswer = {}
             jsonAnswer['number'] = str(number)
@@ -110,7 +114,7 @@ def sendMail(subject, message, to=''):
             msg['To'] = to
         else:
             msg['To'] = mailSender
-        server.sendmail(msg['From'], {msg['To'], mailSender}, msg.as_string())
+        server.sendmail(msg['From'], msg['To'], msg.as_string())
 
 # Returns a dictionary value giving a key or default value if not existing
 def getValue(dict, key, default=''):
@@ -136,22 +140,6 @@ hostName = socket.gethostname()
 # Get this file name (w/o path & extension)
 cdeFile = pathlib.Path(__file__).stem
 
-### Here are settings to be adapted to your context ###
-
-# MQTT Settings
-MQTT_BROKER = "*myMqttHost*"
-MQTT_RECEIVE_TOPIC = "smsServer/received"
-MQTT_SEND_TOPIC = "smsServer/toSend"
-MQTT_LWT_TOPIC = "smsServer/LWT/"+hostName
-MQTT_ID = "*myMqttUser*"
-MQTT_KEY = "*myMqttKey*"
-
-# Mail settings
-mailSender = "<my mail address>"
-mailServer = "localhost"
-
-### End of settings ###
-
 # Log settings
 log_format = "%(asctime)s:%(levelname)s:%(message)s"
 logger = logging.getLogger(cdeFile)
@@ -163,6 +151,34 @@ formatter = logging.Formatter(log_format)
 logHandler.setFormatter(formatter)
 logger.addHandler(logHandler)
 logger.info('----- Starting on '+hostName+', version '+fileVersion+' -----')
+
+# Read JSON configuration file
+jsonFile = "smsServerParameters.json"
+try:
+    with open(jsonFile, "r") as jsonStream:
+        jsonBuffer = jsonStream.read()
+    # Convert jsonBuffer to dictionary
+    try:
+        jsonData = json.loads(jsonBuffer)
+    except Exception as e:
+        logger.error(F"Error {str(e)} decoding {jsonBuffer}")
+        exit(2)
+except Exception as e:
+    logger.error(F"Error {str(e)} opening {jsonFile}")
+    exit(2)
+
+# MQTT Settings
+MQTT_BROKER = jsonData["mqttServer"]
+MQTT_PORT = jsonData["mqttPort"]
+MQTT_RECEIVE_TOPIC = jsonData["mqttReceiveTopic"]
+MQTT_SEND_TOPIC = jsonData["mqttSendTopic"]
+MQTT_LWT_TOPIC = jsonData["mqttLwtTopic"]+"/"+hostName
+MQTT_ID = jsonData["mqttUser"]
+MQTT_KEY = jsonData["mqttPassword"]
+
+# Mail settings
+mailSender = jsonData["mailSender"]
+mailServer = jsonData["mailServer"]
 
 # Use this python file name and random number as client name
 random.seed()
@@ -183,7 +199,7 @@ mqttClient.username_pw_set(MQTT_ID, MQTT_KEY)
 # Set Last Will Testament (QOS=0, retain=True)
 mqttClient.will_set(MQTT_LWT_TOPIC, '{"state":"down"}', 0, True)
 # Connect to MQTT
-mqttClient.connect(MQTT_BROKER)
+mqttClient.connect(MQTT_BROKER, MQTT_PORT)
 mqttClient.publish(MQTT_LWT_TOPIC, '{"state":"up", "version":"'+str(fileVersion)+'", "startDate":"'+str(datetime.now())+'"}', 0, True)
 # Never give up!
 mqttClient.loop_forever()
