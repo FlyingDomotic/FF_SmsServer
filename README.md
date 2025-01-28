@@ -288,17 +288,17 @@ MQTT and mail settings are to be set into file before running it, probably as a 
 Service definition for examples/smsHandler.py.
 
 #### How to install smsHandler.service
-- copy smsHandler.service and smsServer.py [where ever you want]
+- copy smsHandler.service, smsHandler.py and smsServerParameters.json [where ever you want]
 - cd [where ever you want]
 - chmod +x *.py
-- nano smsServer.service
-	- locate `User=` line and replace `pi` by user you want to run smsServer.service
-	- locate `ExecStart=` line and replace `/home/pi` by location where you installed smsServer.service
+- nano smsHandler.service
+	- locate `User=` line and replace `pi` by user you want to run smsHandler.service
+	- locate `ExecStart=` line and replace `/home/pi` by location where you installed smsHandler.service
 	- save modified file
-- sudo mv smsServer.service /lib/systemd/system/
-- sudo chmod 644 /lib/systemd/system/smsServer.service
-- sudo systemctl enable smsServer.service
-- sudo systemctl start smsServer.service
+- sudo mv smsHandler.service /lib/systemd/system/
+- sudo chmod 644 /lib/systemd/system/smsHandler.service
+- sudo systemctl enable smsHandler.service
+- sudo systemctl start smsHandler.service
 
 ### examples/hardwareImplementation
 

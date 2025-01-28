@@ -18,7 +18,7 @@ Author: Flying Domotic
 License: GNU GPL V3
 """
 
-fileVersion = "1.2.0"
+fileVersion = "1.2.2"
 
 import paho.mqtt.client as mqtt
 import pathlib
@@ -60,11 +60,16 @@ def onMessage(client, userdata, msg):
         if message == '' or date == '' or number == '':
             logger.error("Can't find 'number' or 'date' or 'message'")
             return
-        if message[:len(hostName)].lower() == hostName.lower():
+        if message[:len(instanceName)].lower() == instanceName.lower():
             receiver = ""
-            if number in jsonData["mailReceivers"]:
-                receiver = jsonData["mailReceivers"][number]
-            command = message[len(hostName):].strip()
+            if "mailReceivers" in configData:
+                if number in configData["mailReceivers"]:
+                    receiver = configData["mailReceivers"][number]
+                else:
+                    logger.info(F"'{number}' n'existe pas dans la ligne 'mailReceivers' du fichier de configuration")
+            else:
+                logger.info("'mailReceivers' n'existe pas dans le fichier de configuration")
+            command = message[len(instanceName):].strip()
             logger.info("Command="+command)
             try:
                 args = shlex.split(command)
@@ -107,20 +112,21 @@ def onMessage(client, userdata, msg):
 def sendMail(subject, message, to=''):
     with smtplib.SMTP(mailServer) as server:
         msg = MIMEText(message, _charset='UTF-8')
-        msg['Subject'] = hostName +": "+subject
+        msg['Subject'] = instanceName +": "+subject
         msg['Date'] = email.utils.formatdate(localtime=1)
         msg['From'] = mailSender
         if to:
             msg['To'] = to
         else:
             msg['To'] = mailSender
+        logger.info(F"Sending mail to {msg['To']}")
         server.sendmail(msg['From'], msg['To'], msg.as_string())
 
 # Returns a dictionary value giving a key or default value if not existing
 def getValue(dict, key, default=''):
     if key in dict:
         if dict[key] == None:
-            return default #or None
+            return default
         else:
             return dict[key]
     else:
@@ -159,7 +165,7 @@ try:
         jsonBuffer = jsonStream.read()
     # Convert jsonBuffer to dictionary
     try:
-        jsonData = json.loads(jsonBuffer)
+        configData = json.loads(jsonBuffer)
     except Exception as e:
         logger.error(F"Error {str(e)} decoding {jsonBuffer}")
         exit(2)
@@ -168,17 +174,21 @@ except Exception as e:
     exit(2)
 
 # MQTT Settings
-MQTT_BROKER = jsonData["mqttServer"]
-MQTT_PORT = jsonData["mqttPort"]
-MQTT_RECEIVE_TOPIC = jsonData["mqttReceiveTopic"]
-MQTT_SEND_TOPIC = jsonData["mqttSendTopic"]
-MQTT_LWT_TOPIC = jsonData["mqttLwtTopic"]+"/"+hostName
-MQTT_ID = jsonData["mqttUser"]
-MQTT_KEY = jsonData["mqttPassword"]
+if "instanceName" in configData:
+    instanceName = configData["instanceName"]
+else:
+    instanceName = hostName
+MQTT_BROKER = configData["mqttServer"]
+MQTT_PORT = configData["mqttPort"]
+MQTT_RECEIVE_TOPIC = configData["mqttReceiveTopic"]
+MQTT_SEND_TOPIC = configData["mqttSendTopic"]
+MQTT_LWT_TOPIC = configData["mqttLwtTopic"]+"/"+instanceName
+MQTT_ID = configData["mqttUser"]
+MQTT_KEY = configData["mqttPassword"]
 
 # Mail settings
-mailSender = jsonData["mailSender"]
-mailServer = jsonData["mailServer"]
+mailSender = configData["mailSender"]
+mailServer = configData["mailServer"]
 
 # Use this python file name and random number as client name
 random.seed()
