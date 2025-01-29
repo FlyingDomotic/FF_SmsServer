@@ -18,7 +18,7 @@ Author: Flying Domotic
 License: GNU GPL V3
 """
 
-fileVersion = "1.2.2"
+fileVersion = "1.3.0"
 
 import paho.mqtt.client as mqtt
 import pathlib
@@ -33,8 +33,8 @@ import logging
 import logging.handlers as handlers
 import json
 import socket
-import shlex
 import subprocess
+import locale
 from datetime import datetime
 
 def onConnect(client, userdata, flags, reasonCode, properties=None):
@@ -65,46 +65,38 @@ def onMessage(client, userdata, msg):
             if "mailReceivers" in configData:
                 if number in configData["mailReceivers"]:
                     receiver = configData["mailReceivers"][number]
+                    command = message[len(instanceName):].strip()
+                    logger.info("Command="+command)
+                    try:
+                        if shellName != "":
+                            result = subprocess.run(shellInitCommand + command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=pathlib.Path.home(), shell=True, executable=shellName)
+                        else:
+                            result = subprocess.run(shellInitCommand + command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=pathlib.Path.home(), shell=True)
+                        log = result.stdout.decode(locale.getpreferredencoding()).rstrip()
+                        logger.info("Log="+log)
+                        if result.returncode == 0:
+                            response = F"Command ok, see mail"
+                        else:
+                            response = F"Error {result.returncode} occured! See mail"
+                            if shellErrorRemove != "":
+                                log = log.replace(shellErrorRemove, "")
+                        logger.info("Response: "+response)
+                        # Replace response code by full answer if short
+                        if len(log) < 70:
+                            response = log
+                        if receiver != None:
+                            sendMail(command, log, receiver)
+                        else:
+                            response += ", mail not in "+jsonFile
+                    except OSError as err:
+                        logger.error("Command execution failed with error "+str(err))
+                        response = "Error: {:s}".format(err.strerror)
+                        logger.info("Response: "+response)
+                        sendMail(command, response, receiver)
                 else:
-                    logger.info(F"'{number}' n'existe pas dans la ligne 'mailReceivers' du fichier de configuration")
+                    logger.info(F"'{number}' don't exist in 'mailReceivers' from configuration file")
             else:
-                logger.info("'mailReceivers' n'existe pas dans le fichier de configuration")
-            command = message[len(instanceName):].strip()
-            logger.info("Command="+command)
-            try:
-                args = shlex.split(command)
-            except ValueError as err:
-                logger.error("Command split failed with error "+str(err))
-                response = "Error: "+str(err)
-                logger.info("Response: "+response)
-                sendMail(command, response, receiver)
-            else:
-                logger.info("Args="+str(args))
-                try:
-                    result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-                    log = result.stdout.decode('UTF-8')
-                    logger.info("Log="+log)
-                    response = "Result: {:d}".format(result.returncode)
-                    logger.info("Response: "+response)
-                    # Replace response code by full answer if short
-                    if len(log) < 70:
-                        response = log
-                    if receiver != None:
-                        sendMail(command, log, receiver)
-                    else:
-                        response += ", mail not in "+jsonFile
-                except OSError as err:
-                    logger.error("Command execution failed with error "+str(err))
-                    response = "Error: {:s}".format(err.strerror)
-                    logger.info("Response: "+response)
-                    sendMail(command, response, receiver)
-            # compose SMS answer message
-            jsonAnswer = {}
-            jsonAnswer['number'] = str(number)
-            jsonAnswer['message'] = response
-            answerMessage = json.dumps(jsonAnswer)
-            logger.info("Answer: >"+answerMessage+"<")
-            mqttClient.publish(MQTT_SEND_TOPIC, answerMessage)
+                logger.info("'mailReceivers' don't exist in configuration file")
         else:
             logger.info("Ignoring "+message)
 
@@ -189,6 +181,11 @@ MQTT_KEY = configData["mqttPassword"]
 # Mail settings
 mailSender = configData["mailSender"]
 mailServer = configData["mailServer"]
+
+# Shell options
+shellName = getValue(configData, "shellName", "")
+shellInitCommand = getValue(configData, "shellInitCommand", "")
+shellErrorRemove = getValue(configData, "shellErrorRemove", "")
 
 # Use this python file name and random number as client name
 random.seed()
