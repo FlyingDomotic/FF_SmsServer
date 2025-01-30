@@ -88,6 +88,13 @@ def onMessage(client, userdata, msg):
                             sendMail(command, log, receiver)
                         else:
                             response += ", mail not in "+jsonFile
+                        # compose SMS answer message
+                        jsonAnswer = {}
+                        jsonAnswer['number'] = str(number)
+                        jsonAnswer['message'] = response
+                        answerMessage = json.dumps(jsonAnswer)
+                        logger.info("Answer: >"+answerMessage+"<")
+                        mqttClient.publish(MQTT_SEND_TOPIC, answerMessage)
                     except OSError as err:
                         logger.error("Command execution failed with error "+str(err))
                         response = "Error: {:s}".format(err.strerror)
