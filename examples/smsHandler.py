@@ -18,7 +18,7 @@ Author: Flying Domotic
 License: GNU GPL V3
 """
 
-fileVersion = "1.3.0"
+fileVersion = "1.3.1"
 
 import paho.mqtt.client as mqtt
 import pathlib
@@ -42,6 +42,7 @@ def onConnect(client, userdata, flags, reasonCode, properties=None):
     if reasonCode != 'Success' and str(reasonCode) != '0':
         logger.error(F"Failed to connect - Reason code={reasonCode}")
         return
+    mqttClient.publish(MQTT_LWT_TOPIC, '{"state":"up", "version":"'+str(fileVersion)+'", "startDate":"'+str(datetime.now())+'"}', 0, True)
     mqttClient.subscribe(MQTT_RECEIVE_TOPIC, 0)
 
 def onMessage(client, userdata, msg):
@@ -214,6 +215,5 @@ mqttClient.username_pw_set(MQTT_ID, MQTT_KEY)
 mqttClient.will_set(MQTT_LWT_TOPIC, '{"state":"down"}', 0, True)
 # Connect to MQTT
 mqttClient.connect(MQTT_BROKER, MQTT_PORT)
-mqttClient.publish(MQTT_LWT_TOPIC, '{"state":"up", "version":"'+str(fileVersion)+'", "startDate":"'+str(datetime.now())+'"}', 0, True)
 # Never give up!
 mqttClient.loop_forever()
