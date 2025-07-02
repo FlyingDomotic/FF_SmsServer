@@ -18,21 +18,26 @@ Author: Flying Domotic
 License: GNU GPL V3
 """
 
-fileVersion = "1.3.1"
+fileVersion = "25.7.2-2"
 
-import paho.mqtt.client as mqtt
+import smtplib
+import glob
 import pathlib
+from email import encoders
+from email import utils
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email.message import EmailMessage
+import paho.mqtt.client as mqtt
 import os
 import socket
 import random
-import smtplib
-import ssl
-import email.utils
-from email.mime.text import MIMEText
 import logging
 import logging.handlers as handlers
 import json
 import socket
+import shlex
 import subprocess
 import locale
 from datetime import datetime
@@ -109,18 +114,32 @@ def onMessage(client, userdata, msg):
             logger.info("Ignoring "+message)
 
 # Send an email to me
-def sendMail(subject, message, to=''):
+def sendMail(subject, body, fileToAttach = None, to=""):
+    global mailSender, mailServer
     with smtplib.SMTP(mailServer) as server:
-        msg = MIMEText(message, _charset='UTF-8')
-        msg['Subject'] = instanceName +": "+subject
-        msg['Date'] = email.utils.formatdate(localtime=1)
-        msg['From'] = mailSender
-        if to:
-            msg['To'] = to
+        if fileToAttach != None:
+            msg = MIMEMultipart()
+            msg.attach(MIMEText(body, "plain", "UTF-8"))
+            fileCount = 0
+            for file in glob.glob(fileToAttach):
+                fileCount += 1
+                # Add file as application/octet-stream
+                part = MIMEBase("application", "octet-stream")
+                part.set_payload(open(file, "rb").read())
+                encoders.encode_base64(part)
+                part.add_header("Content-Disposition", F"attachment; filename={pathlib.Path(file).name}")
+                msg.attach(part)
+            if not fileCount:
+                print(F"Can't find {fileToAttach} - File not attached!")
         else:
-            msg['To'] = mailSender
-        logger.info(F"Sending mail to {msg['To']}")
+            msg = EmailMessage()
+            msg.set_content(body)
+        msg['Subject'] = subject
+        msg['Date'] = utils.formatdate(localtime=True)
+        msg['From'] = mailSender
+        msg['To'] = to if to else mailSender
         server.sendmail(msg['From'], msg['To'], msg.as_string())
+        server.quit()
 
 # Returns a dictionary value giving a key or default value if not existing
 def getValue(dict, key, default=''):
