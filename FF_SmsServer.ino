@@ -35,7 +35,7 @@
 
 */
 
-#define CODE_VERSION "1.1.0"								// Version of this code
+#define CODE_VERSION "1.1.1"								// Version of this code
 #include <FF_WebServer.h>									// WebServer class https://github.com/FlyingDomotic/FF_WebServer
 
 //	User internal data
@@ -92,6 +92,7 @@ String resetCause = "";										// Used to save reset cause
 String mqttSendTopic = "";
 String mqttGetTopic = "";
 String mqttLwtTopic = "";
+String mqttCommandTopic = "";
 String allowedNumbers = "";
 
 // Local variables
@@ -100,6 +101,7 @@ bool localTraceFlag = false;
 
 static void enterRoutine(const char* routineName);
 static void readSmsCallback(int pendingSmsIndex, const char* smsNumber, const char* smsDate, const char* smsMessage);
+bool dumpFile(const char* fileName);
 
 // Declare here used callbacks
 static CONFIG_CHANGED_CALLBACK(onConfigChangedCallback);
@@ -128,8 +130,25 @@ static WIFI_GOT_IP_CALLBACK(onWifiGotIpCallback);
 */
 
 CONFIG_CHANGED_CALLBACK(onConfigChangedCallback) {
-	if (localTraceFlag) enterRoutine(__func__);
+    if (localTraceFlag) enterRoutine(__func__);
 	trace_info_P("Loading user config", NULL);
+//	String userConfigData;
+//	FF_WebServer.load_user_config("MQTTHost", userConfigData);
+//    trace_info_P("mqttHost=%s", userConfigData.c_str());
+//	FF_WebServer.load_user_config("MQTTPort", userConfigData);
+//    trace_info_P("mqttPort=%s", userConfigData.c_str());
+//	FF_WebServer.load_user_config("MQTTUser", userConfigData);
+//    trace_info_P("mqttUser=%s", userConfigData.c_str());
+//	FF_WebServer.load_user_config("MQTTPass", userConfigData);
+//    trace_info_P("mqttPass=%s", userConfigData.c_str());
+//	FF_WebServer.load_user_config("MQTTClientID", userConfigData);
+//    trace_info_P("mqttClientID=%s", userConfigData.c_str());
+//	FF_WebServer.load_user_config("MQTTInterval", userConfigData);
+//    trace_info_P("mqttInterval=%s", userConfigData.c_str());
+//	FF_WebServer.load_user_config("MQTTTopic", userConfigData);
+//    trace_info_P("mqttTopic=%s", userConfigData.c_str());
+	FF_WebServer.load_user_config("MQTTCommandTopic", mqttCommandTopic);
+    trace_info_P("mqttCommandTopic=%s", mqttCommandTopic.c_str());
 	FF_WebServer.load_user_config("mqttSendTopic", mqttSendTopic);
     trace_info_P("mqttSendTopic=%s", mqttSendTopic.c_str());
 	FF_WebServer.load_user_config("mqttGetTopic", mqttGetTopic);
@@ -138,6 +157,14 @@ CONFIG_CHANGED_CALLBACK(onConfigChangedCallback) {
     trace_info_P("mqttLwtTopic=%s", mqttLwtTopic.c_str());
 	FF_WebServer.load_user_config("allowedNumbers", allowedNumbers);
     trace_info_P("allowedNumbers=%s", allowedNumbers.c_str());
+	#ifdef FF_TRACE_USE_SYSLOG
+//		FF_WebServer.load_user_config("SyslogServer", userConfigData);
+//        trace_info_P("syslogServer=%s", userConfigData.c_str());
+//		FF_WebServer.load_user_config("SyslogPort", userConfigData);
+//        trace_info_P("syslogPort=%s", userConfigData.c_str());
+	#endif
+    dumpFile("/secret.json");
+    dumpFile("/userconfig.json");
 }
 
 /*!
@@ -159,6 +186,7 @@ DEBUG_COMMAND_CALLBACK(onDebugCommandCallback) {
 	if (debugCommand == "user") {
 		// -- Add here your own user variables to print
 		trace_info_P("resetCause=%s", resetCause.c_str());
+		trace_info_P("mqttCommandTopic=%s", mqttSendTopic.c_str());
 		trace_info_P("mqttSendTopic=%s", mqttSendTopic.c_str());
 		trace_info_P("mqttGetTopic=%s", mqttGetTopic.c_str());
 		trace_info_P("mqttLwtTopic=%s", mqttLwtTopic.c_str());
@@ -457,6 +485,10 @@ MQTT_CONNECT_CALLBACK(onMqttConnectCallback) {
 		trace_info_P("Subscribing to %s", (mqttLwtTopic+"+").c_str());
 		FF_WebServer.mqttSubscribeRaw((mqttLwtTopic+"+").c_str());
 	}
+	if (mqttCommandTopic != "") {
+		trace_info_P("Subscribing to %s", mqttCommandTopic.c_str());
+		FF_WebServer.mqttSubscribeRaw(mqttCommandTopic.c_str());
+	}
 }
 
 /*!
@@ -521,6 +553,13 @@ MQTT_MESSAGE_CALLBACK(onMqttMessageCallback) {
 		}
 	}
 
+	if (mqttCommandTopic != "") {						    // Is command topic defined?
+		if (String(topic) == mqttCommandTopic) {			// Is it the right topic?
+            onDebugCommandCallback(String(localPayload));   // Execute command
+            return;
+		}
+    }
+
 	// Analyze JSON message (will fail if payload is empty)
 	JsonDocument jsonDoc;
 	auto error = deserializeJson(jsonDoc, localPayload);
@@ -546,7 +585,8 @@ MQTT_MESSAGE_CALLBACK(onMqttMessageCallback) {
 				return;
 			}
 			sendSMS(number.c_str(), message.c_str());		// Ok, store the SMS in queue
-		}
+            return;
+        }
 	}
 
 	if (mqttLwtTopic != "") {								// Is LWT topic defined?
@@ -714,7 +754,7 @@ void setup() {
 
 	// Start FF_WebServer
 	FF_WebServer.begin(&LittleFS, CODE_VERSION);
-
+    
 	// SMS server specific setup
 	#ifdef ISOLATION_RELAY_PIN
 		isolationStartTime = millis();
@@ -752,7 +792,7 @@ void setup() {
         trace_info_P("GSM started!", NULL);
     #endif
 
-
+    trace_info_P("End of setup", NULL);
 }
 
 //	This is the main loop.
@@ -976,4 +1016,21 @@ void sendSMS(const char* smsNumber, const char* smsMessage) {
 */
 void enterRoutine(const char* routineName) {
 	trace_debug_P("Entering %s", routineName);
+}
+
+// Load secret file
+bool dumpFile(const char* fileName) {
+	File configFile = LittleFS.open(fileName, "r");
+	if (!configFile) {
+        trace_error_P("Failed to open %s", fileName);
+		return false;
+	}
+
+    String bufferString;
+    while(configFile.available()) {
+      char r = configFile.read();
+      bufferString += r; 
+    }
+    trace_info_P("%s content is >%s<", fileName, bufferString.c_str());
+	return true;
 }
