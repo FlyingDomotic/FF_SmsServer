@@ -24,7 +24,7 @@ if os.path.isdir(firmwareFolder):
         if answer[:1] in 'yYoO':
             for fileToCopy in filesToCopy:
                 for file in pathlib.Path(firmwareFolder).rglob(fileToCopy):
-                    shutil.copy(file, os.path.join(firmwareFolder, file.name))
+                    shutil.copy(file, os.path.join(firmwarePreviousFolder, file.name))
                     fileCount += 1
             print(F"{pathlib.Path(__file__).name}: {fileCount} file{'s'[:fileCount^1]} moved")
     fileCount = 0
