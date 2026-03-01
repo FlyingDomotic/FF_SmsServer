@@ -868,7 +868,7 @@ void loop() {
 				}
 			// Check remaining space
 			uint16_t freeBlockSize = ESP.getMaxFreeBlockSize();
-			if (freeBlockSize < 4096) {
+			if (freeBlockSize < 12288) {
 				trace_error_P("Largest free block is %d - Restarting!!", freeBlockSize);
 				delay(1000);
 				ESP.restart();
